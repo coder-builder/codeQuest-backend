@@ -30,6 +30,8 @@ DEBUG = True
 ALLOWED_HOSTS = [
     'localhost',
     '127.0.0.1',
+    '54.242.246.228',
+    'codequest.co.kr',
     config('AWS_HOST', default=''),
 
 ]        #외부에서 모든 호스트를 허용 **** 배포시에는 실제 도메인만 허용해야 함!!
