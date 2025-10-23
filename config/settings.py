@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 from decouple import config
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -26,7 +27,12 @@ SECRET_KEY = config('SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['*']        #외부에서 모든 호스트를 허용 **** 배포시에는 실제 도메인만 허용해야 함!!
+ALLOWED_HOSTS = [
+    'localhost',
+    '127.0.0.1',
+    config('AWS_HOST', default=''),
+
+]        #외부에서 모든 호스트를 허용 **** 배포시에는 실제 도메인만 허용해야 함!!
 
 
 # Application definition
@@ -131,6 +137,7 @@ CORS_ALLOW_ALL_ORIGINS = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
