@@ -4,6 +4,7 @@ import os
 import sys
 
 
+# main 메서드 생성 이걸 실행함(장고 코어를 실행함 )
 def main():
     """Run administrative tasks."""
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
@@ -17,6 +18,6 @@ def main():
         ) from exc
     execute_from_command_line(sys.argv)
 
-
+# manage.py는 자바의 main 하나만 실행하는 것처럼 이녀석을 실행함
 if __name__ == '__main__':
     main()
