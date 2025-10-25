@@ -17,26 +17,24 @@ import os
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
-
-# SECURITY WARNING: keep the secret key used in production secret!
+# .env에서 설정해놓은 시크릿키 import os를 통해 받아옴
 SECRET_KEY = config('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
+#외부의 어떤 호스트를 허용할지
 ALLOWED_HOSTS = [
     'localhost',
     '127.0.0.1',
+    '54.242.246.228',
+    'codequest.co.kr',
     config('AWS_HOST', default=''),
 
-]        #외부에서 모든 호스트를 허용 **** 배포시에는 실제 도메인만 허용해야 함!!
+]
 
 
 # Application definition
-
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -44,21 +42,23 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'drf_spectacular',               #현재 만들어진 api를 시각적으로 볼 수 있게 하는 패키지
 
     'rest_framework',   #DRF(Django REST Framework)JSON 형식으로 API 만들어주는 도구
     'corsheaders',      #CORS 다른 도메인에서 우리 API 호출 가능하게 해주는 도구
-    'api',              #실제 API 기능을 만들 작업 공간
+    'api',              #실제 API 기능을 만들 작업 공간 폴더임
 ]
 
+# 자바로 따지면 서블릿 + 인터셉터(request -> MIDDLEWARE -> View(자바의 Controller같은 느낌임))
 MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
-    'corsheaders.middleware.CorsMiddleware',                    #요청 들어올 때 CORS 체크하는 검문소
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'django.middleware.security.SecurityMiddleware',            # 장고자체의 시큐리티(자바 시큐리티처럼 중간검문소)
+    'corsheaders.middleware.CorsMiddleware',                    # 요청 들어올 때 CORS 체크하는 검문소
+    'django.contrib.sessions.middleware.SessionMiddleware',     # 장고 자체의 세션 검문소
+    'django.middleware.common.CommonMiddleware',                # 공통 미들웨어
+    'django.middleware.csrf.CsrfViewMiddleware',                # CSRF 공격 방어 (POST 요청 토큰 검증)
+    'django.contrib.auth.middleware.AuthenticationMiddleware',  # 사용자 인증 정보 추가 (request.user)
+    'django.contrib.messages.middleware.MessageMiddleware',     # 일회성 메시지 처리 (알림)
+    'django.middleware.clickjacking.XFrameOptionsMiddleware',   # 클릭재킹 방어 (iframe 차단)
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -80,10 +80,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
-
-# Database
-# https://docs.djangoproject.com/en/5.2/ref/settings/#databases
-
+# 데이터베이스 연결(마리아디비)
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',                         # 마리아 디비 사용 .env에 상세히 적어놓음
@@ -143,3 +140,7 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+REST_FRAMEWORK = {
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
