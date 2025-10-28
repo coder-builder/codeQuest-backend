@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 from decouple import config
+from datetime import timedelta
 import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -49,7 +50,11 @@ INSTALLED_APPS = [
     'rest_framework',   #DRF(Django REST Framework)JSON 형식으로 API 만들어주는 도구
     'corsheaders',      #CORS 다른 도메인에서 우리 API 호출 가능하게 해주는 도구
     'api',              #실제 API 기능을 만들 작업 공간 폴더임
+    'users',            #사용자 인증 관련 기능 담당 앱
 ]
+
+# Custom User Model (내가 만든 User 모델)
+AUTH_USER_MODEL = 'users.User'
 
 # 자바로 따지면 서블릿 + 인터셉터(request -> MIDDLEWARE -> View(자바의 Controller같은 느낌임))
 MIDDLEWARE = [
@@ -120,16 +125,20 @@ AUTH_PASSWORD_VALIDATORS = [
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
-
-LANGUAGE_CODE = 'en-us'
-
-TIME_ZONE = 'UTC'
-
+LANGUAGE_CODE = 'ko-kr'
+TIME_ZONE = 'Asia/Seoul'
 USE_I18N = True
-
 USE_TZ = True
 
+# CORS 설정 (개발 환경일 때)
 CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = True
+
+# ===== 프로덕션 환경에서는 아래 설정 사용 =====
+# CORS_ALLOWED_ORIGINS = [
+#     "https://yourdomain.com",
+#     "https://app.yourdomain.com",
+# ]
 
 
 # Static files (CSS, JavaScript, Images)
@@ -143,6 +152,73 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# REST Framework 설정
 REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',  # JWT 인증 추가
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+    ],
+    'DEFAULT_PARSER_CLASSES': [
+        'rest_framework.parsers.JSONParser',
+    ],
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+# JWT 설정
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': True,                      # Refresh Token 재발급
+    'BLACKLIST_AFTER_ROTATION': True,                    # 기존 Refresh Token 블랙리스트 추가
+    'UPDATE_LAST_LOGIN': False,                          # 마지막 로그인 시간 업데이트 안함
+
+    'ALGORITHM': 'HS256',                             # 토큰 서명 알고리즘
+    'SIGNING_KEY': SECRET_KEY,                         # 서명 키
+    'VERIFYING_KEY': None,                            # 검증 키 (비대칭키일 때 사용)
+    'AUDIENCE': None,                                 # 토큰 대상
+    'ISSUER': None,                                  # 토큰 발급자
+    'JWK_URL': None,                                 # JWK URL
+    'LEEWAY': 0,                                    # 시간 오차 허용 범위
+
+    'AUTH_HEADER_TYPES': ('Bearer',),               # Authorization 헤더 타입
+    'AUTH_HEADER_NAME': 'HTTP_AUTHORIZATION',      # Authorization 헤더 이름
+    'USER_ID_FIELD': 'user_id',                         # User 모델의 ID 필드
+    'USER_ID_CLAIM': 'user_id',                        # 토큰 내 User ID 클레임
+    'USER_AUTHENTICATION_RULE': 'rest_framework_simplejwt.authentication.default_user_authentication_rule', # 사용자 인증 규칙
+    'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',), # 허용되는 토큰 클래스
+    'TOKEN_TYPE_CLAIM': 'token_type',                   # 토큰 타입 클레임
+    'TOKEN_USER_CLASS': 'rest_framework_simplejwt.models.TokenUser', # 토큰 사용자 클래스
+
+    'JTI_CLAIM': 'jti',                               # JWT ID 클레임
+
+    'SLIDING_TOKEN_REFRESH_EXP_CLAIM': 'refresh_exp', # 슬라이딩 토큰 리프레시 만료 클레임 (기본값)
+    'SLIDING_TOKEN_LIFETIME': timedelta(minutes=5),   # 슬라이딩 토큰 수명 (기본 액세스 토큰 수명)
+    'SLIDING_TOKEN_REFRESH_LIFETIME': timedelta(days=1), # 슬라이딩 토큰 리프레시 수명 (기본 리프레시 토큰 수명)
+}
+
+# Logging 설정
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO',
+    },
+    'loggers': {
+        'django.db.backends': {
+            'handlers': ['console'],
+            'level': 'DEBUG' if DEBUG else 'INFO',
+        },
+    },
 }
