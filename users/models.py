@@ -72,6 +72,8 @@ class User(AbstractUser):
     # 구독 정보
     SUBSCRIPTION_CHOICES = [
         ('free', 'Free'),
+        ('monthly', 'Monthly'),
+        ('yearly', 'Yearly'),
         ('premium', 'Premium'),
     ]
     subscription_type = models.CharField(
@@ -120,7 +122,7 @@ class User(AbstractUser):
 
     def is_premium(self):
         """프리미엄 구독 여부"""
-        if self.subscription_type != 'premium':
+        if self.subscription_type == 'free':
             return False
 
         if self.subscription_expires_at and self.subscription_expires_at < timezone.now():
