@@ -18,10 +18,10 @@ import os
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # .env에서 설정해놓은 시크릿키 import os를 통해 받아옴
-SECRET_KEY = config('SECRET_KEY')
+SECRET_KEY = config('DJANGO_SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = config('DEBUG', default=False, cast=bool)
 
 ALLOWED_HOSTS = ['*'] # 모든 호스트 허용 (개발 편의를 위해, 배포 시에는 꼭 수정 필요)
 
