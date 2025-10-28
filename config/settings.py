@@ -46,12 +46,32 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'drf_spectacular',               #현재 만들어진 api를 시각적으로 볼 수 있게 하는 패키지
+    'django.contrib.sites',          #사이트 프레임워크 장고 자체에서 제공 (oauth 등에서 필요)
 
+    # Third-party apps
     'rest_framework',   #DRF(Django REST Framework)JSON 형식으로 API 만들어주는 도구
     'corsheaders',      #CORS 다른 도메인에서 우리 API 호출 가능하게 해주는 도구
+    'rest_framework_simplejwt',  #JWT 인증을 위한 도구
+    'rest_framework_authtoken', #Token 인증을 위한 도구
+
+    # Social Auth (소셜 로그인 관련)
+    'dj_rest_auth',
+    'dj_rest_auth.registration',
+    'allauth',
+    'allauth.account',
+    'allauth.socialaccount',
+    'allauth.socialaccount.providers.google',
+    'allauth.socialaccount.providers.kakao',
+    'allauth.socialaccount.providers.naver',
+    'allauth.socialaccount.providers.apple',
+
+    # My apps
     'api',              #실제 API 기능을 만들 작업 공간 폴더임
     'users',            #사용자 인증 관련 기능 담당 앱
 ]
+
+# ========== Sites Framework ==========
+SITE_ID = 1
 
 # Custom User Model (내가 만든 User 모델)
 AUTH_USER_MODEL = 'users.User'
@@ -200,6 +220,56 @@ SIMPLE_JWT = {
     'SLIDING_TOKEN_REFRESH_EXP_CLAIM': 'refresh_exp', # 슬라이딩 토큰 리프레시 만료 클레임 (기본값)
     'SLIDING_TOKEN_LIFETIME': timedelta(minutes=5),   # 슬라이딩 토큰 수명 (기본 액세스 토큰 수명)
     'SLIDING_TOKEN_REFRESH_LIFETIME': timedelta(days=1), # 슬라이딩 토큰 리프레시 수명 (기본 리프레시 토큰 수명)
+}
+
+# ========== Allauth 설정 ==========
+ACCOUNT_EMAIL_VERIFICATION = 'none'
+ACCOUNT_EMAIL_REQUIRED = True
+ACCOUNT_USERNAME_REQUIRED = False
+ACCOUNT_AUTHENTICATION_METHOD = 'email'
+
+SOCIALACCOUNT_EMAIL_VERIFICATION = 'none'
+SOCIALACCOUNT_EMAIL_REQUIRED = True
+SOCIALACCOUNT_AUTO_SIGNUP = True
+
+# ========== 소셜 로그인 제공자 설정 ==========
+SOCIALACCOUNT_PROVIDERS = {
+    'google': {
+        'SCOPE': [
+            'profile',
+            'email',
+        ],
+        'AUTH_PARAMS': {
+            'access_type': 'online',
+        },
+        'APP': {
+            'client_id': config('GOOGLE_CLIENT_ID'),
+            'secret': config('GOOGLE_CLIENT_SECRET'),
+            'key': ''
+        }
+    },
+    'kakao': {
+        'APP': {
+            'client_id': config('KAKAO_REST_API_KEY'),
+            'secret': config('KAKAO_CLIENT_SECRET'),
+            'key': ''
+        }
+    },
+    'naver': {
+        'APP': {
+            'client_id': config('NAVER_CLIENT_ID'),
+            'secret': config('NAVER_CLIENT_SECRET'),
+            'key': ''
+        }
+    },
+    'apple': {
+        'APP': {
+            'client_id': config('APPLE_SERVICE_ID'),
+            'secret': config('APPLE_CLIENT_SECRET'),
+            'key': config('APPLE_KEY_ID'),
+            'certificate_key': config('APPLE_PRIVATE_KEY')
+        }
+    }
 }
 
 # Logging 설정
