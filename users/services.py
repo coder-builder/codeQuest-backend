@@ -59,21 +59,11 @@ class UserService:
             user.last_login = timezone.now()
             user.save(update_fields=['last_login'])
 
-            # 응답 (dict 직접 반환!)
             return {
                 'success': True,
-                'access': str(access),
+                'user': UserSerializer(user).data,
                 'refresh': str(refresh),
-                'user': {
-                    'user_id': user.user_id,
-                    'email': user.email,
-                    'nickname': user.nickname,
-                    'level': user.level,
-                    'exp': user.exp,
-                    'hearts': user.hearts,
-                    'coins': user.coins,
-                    'is_premium': user.is_premium,
-                }
+                'access': str(access),
             }
         except Exception as e:
             raise ValueError("로그인에 실패했습니다.") from e
