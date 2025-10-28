@@ -1,0 +1,1 @@
+### SQL Queries SQL 쿼리문 모음 ### (ORM 방식x, 순수 SQL문 사용)
