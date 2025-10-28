@@ -52,7 +52,7 @@ INSTALLED_APPS = [
     'rest_framework',   #DRF(Django REST Framework)JSON 형식으로 API 만들어주는 도구
     'corsheaders',      #CORS 다른 도메인에서 우리 API 호출 가능하게 해주는 도구
     'rest_framework_simplejwt',  #JWT 인증을 위한 도구
-    'rest_framework_authtoken', #Token 인증을 위한 도구
+    'rest_framework.authtoken', #Token 인증을 위한 도구
 
     # Social Auth (소셜 로그인 관련)
     'dj_rest_auth',
@@ -86,6 +86,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',  # 사용자 인증 정보 추가 (request.user)
     'django.contrib.messages.middleware.MessageMiddleware',     # 일회성 메시지 처리 (알림)
     'django.middleware.clickjacking.XFrameOptionsMiddleware',   # 클릭재킹 방어 (iframe 차단)
+    'allauth.account.middleware.AccountMiddleware',             # allauth의 계정 관련 미들웨어
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -261,15 +262,16 @@ SOCIALACCOUNT_PROVIDERS = {
             'secret': config('NAVER_CLIENT_SECRET'),
             'key': ''
         }
-    },
-    'apple': {
-        'APP': {
-            'client_id': config('APPLE_SERVICE_ID'),
-            'secret': config('APPLE_CLIENT_SECRET'),
-            'key': config('APPLE_KEY_ID'),
-            'certificate_key': config('APPLE_PRIVATE_KEY')
-        }
     }
+    # ,
+    # 'apple': {
+    #     'APP': {
+    #         'client_id': config('APPLE_SERVICE_ID'),
+    #         'secret': config('APPLE_CLIENT_SECRET'),
+    #         'key': config('APPLE_KEY_ID'),
+    #         'certificate_key': config('APPLE_PRIVATE_KEY')
+    #     }
+    # }
 }
 
 # Logging 설정
