@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from ..models import SocialAccount
+from .user_serializer import UserSerializer
 
 
 # ========================================
