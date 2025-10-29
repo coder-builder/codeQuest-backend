@@ -57,8 +57,6 @@ class UserRegisterSerializer(serializers.ModelSerializer):
 """ 사용자 기본 정보 조회용 Serializer """
 class UserSerializer(serializers.ModelSerializer):
     
-    is_premium = serializers.SerializerMethodField()
-    
     class Meta:
         model = User
         fields = "__all__"
