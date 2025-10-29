@@ -3,7 +3,7 @@ from django.db import models # Django 모델 필드에 사용
 import uuid # UUID 필드에 사용
 from django.utils import timezone # 타임스탬프 필드에 사용
 from datetime import timedelta # 구독 만료일 계산에 사용
-import secrets # 임시 비밀번호 생성에 사용
+from django.core.exceptions import ValidationError
 
 class UserManager(BaseUserManager):
     """
@@ -21,9 +21,18 @@ class UserManager(BaseUserManager):
         email = self.normalize_email(email)
         user = self.model(email=email, **extra_fields)
 
+        # nickname 자동 생성
         if 'nickname' not in extra_fields or not extra_fields['nickname']:
-            # nickname이 없으면 이메일의 앞부분을 사용
-            user.nickname = email.split('@')[0]
+            base_nickname = email.split('@')[0]
+            nickname = base_nickname
+            counter = 1
+            
+            # 중복 방지
+            while self.model.objects.filter(nickname=nickname).exists():
+                nickname = f"{base_nickname}_{counter}"
+                counter += 1
+            
+            user.nickname = nickname
         else:
             user.nickname = extra_fields['nickname']
 
@@ -58,6 +67,13 @@ class User(AbstractUser):
     """
     CodeQuest 사용자 모델
     """
+    # 커스텀 Manager 사용
+    objects = UserManager()
+
+    # username 필드 제거
+    username = None
+
+    # 기본 정보
     user_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     email = models.EmailField(unique=True, max_length=255)
     nickname = models.CharField(max_length=50, unique=True)
@@ -88,27 +104,54 @@ class User(AbstractUser):
     streak_days = models.IntegerField(default=0)
     last_active_date = models.DateField(blank=True, null=True)
 
+    # 계정 상태
+    is_deleted = models.BooleanField(
+        default=False,
+        verbose_name='삭제 여부',
+        help_text='소프트 삭제용'
+    )
+    deleted_at = models.DateTimeField(
+        blank=True,
+        null=True,
+        verbose_name='삭제 시간'
+    )
+
     # 타임스탬프
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
-    # username 필드 제거
-    username = None
+    # 충돌 방지
+    groups = models.ManyToManyField(
+        'auth.Group',
+        related_name='custom_user_set',
+        blank=True,
+        verbose_name='그룹'
+    )
+    user_permissions = models.ManyToManyField(
+        'auth.Permission',
+        related_name='custom_user_set',
+        blank=True,
+        verbose_name='권한'
+    )
 
     # email을 로그인 필드로 사용
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['nickname']  # createsuperuser 시 추가로 입력받을 필드
 
-    # 커스텀 Manager 사용
-    objects = UserManager()
-
     class Meta:
         db_table = 'users'
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['email']),
+            models.Index(fields=['nickname']),
+            models.Index(fields=['is_deleted', 'created_at']),
+        ]
 
     def __str__(self):
         return f"{self.nickname} ({self.email})"
 
+
+    # ========== 게임 관련 메서드 ==========
     def add_exp(self, amount):
         """EXP 추가 및 레벨업 체크"""
         self.exp += amount
@@ -118,8 +161,36 @@ class User(AbstractUser):
             self.level = new_level
             return True  # 레벨업 발생
 
+        self.save(update_fields=['exp'])
+        return False
+    
+    def use_heart(self):
+        """하트 사용"""
+        if self.hearts > 0:
+            self.hearts -= 1
+            self.save(update_fields=['hearts'])
+            return True
+        return False
+    
+    def add_hearts(self, amount):
+        """하트 추가"""
+        self.hearts += amount
+        self.save(update_fields=['hearts'])
+    
+    def add_coins(self, amount):
+        """코인 추가"""
+        self.coins += amount
+        self.save(update_fields=['coins'])
+    
+    def use_coins(self, amount):
+        """코인 사용"""
+        if self.coins >= amount:
+            self.coins -= amount
+            self.save(update_fields=['coins'])
+            return True
         return False
 
+    # ========== 구독 관련 메서드 ==========
     def is_premium(self):
         """프리미엄 구독 여부"""
         if self.subscription_type == 'free':
@@ -129,6 +200,317 @@ class User(AbstractUser):
             return False
 
         return True
+    
+    def activate_subscription(self, subscription_type, duration_days):
+        """구독 활성화"""
+        self.subscription_type = subscription_type
+        self.subscription_expires_at = timezone.now() + timedelta(days=duration_days)
+        self.save(update_fields=['subscription_type', 'subscription_expires_at'])
+
+    # ========== 학습 관련 메서드 ==========
+    def update_streak(self):
+        """연속 학습 일수 업데이트"""
+        today = timezone.now().date()
+        
+        if not self.last_active_date:
+            self.streak_days = 1
+        elif self.last_active_date == today - timedelta(days=1):
+            self.streak_days += 1
+        elif self.last_active_date != today:
+            self.streak_days = 1
+        
+        self.last_active_date = today
+        self.save(update_fields=['streak_days', 'last_active_date'])
+
+    # ========== 계정 관련 메서드 ==========
+    def delete_account(self):
+        """계정 삭제"""
+        self.is_deleted = True
+        self.deleted_at = timezone.now()
+        self.is_active = False
+        self.save(update_fields=['is_deleted', 'deleted_at', 'is_active'])
+
+    def restore_account(self):
+        """계정 복원"""
+        self.is_deleted = False
+        self.deleted_at = None
+        self.is_active = True
+        self.save(update_fields=['is_deleted', 'deleted_at', 'is_active'])
+
+# SocialAccount 모델
+class SocialAccount(models.Model):
+    """
+    소셜 로그인 계정 관리
+    - User : SocialAccount = 1 : 1 (독립 계정)
+    - 각 소셜 계정은 고유한 User를 가짐
+    """
+
+    PROVIDER_CHOICES = [
+        ('google', 'Google'),
+        ('kakao', 'Kakao'),
+        ('naver', 'Naver'),
+        ('apple', 'Apple'),
+    ]
+
+    # User 연결 (1:1)
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name='social_account',
+        verbose_name='사용자'
+    )
+
+    # 소셜 제공자 정보
+    provider = models.CharField(
+        max_length=20,
+        choices=PROVIDER_CHOICES,
+        verbose_name='소셜 제공자',
+        db_index=True
+    )
+    social_id = models.CharField(
+        max_length=255,
+        verbose_name='소셜 ID',
+        help_text='제공자에서 부여한 고유 ID',
+        db_index=True
+    )
+
+    # 소셜 계정 정보
+    social_email = models.EmailField(
+        max_length=255,
+        null=True,
+        blank=True,
+        verbose_name='소셜 이메일',
+        help_text='소셜 계정의 원본 이메일'
+    )
+    social_name = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        verbose_name='소셜 이름'
+    )
+
+    # 토큰 정보 (선택적 저장)
+    access_token = models.TextField(
+        null=True,
+        blank=True,
+        verbose_name='Access Token'
+    )
+    refresh_token = models.TextField(
+        null=True,
+        blank=True,
+        verbose_name='Refresh Token'
+    )
+    token_expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='토큰 만료 시간'
+    )
+
+    # 추가 정보
+    extra_data = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name='추가 데이터',
+        help_text='제공자별 추가 정보 저장'
+    )
+
+    # 상태
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name='활성 상태'
+    )
+
+    # 타임스탬프
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='연결 시간'
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name='수정 시간'
+    )
+    last_login_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='마지막 로그인'
+    )
+
+    class Meta:
+        db_table = 'social_accounts'
+        verbose_name = 'Social Account'
+        verbose_name_plural = 'Social Accounts'
+        # provider + social_id 조합은 유일
+        unique_together = [['provider', 'social_id']]
+        indexes = [
+            models.Index(fields=['provider', 'social_id']),
+            models.Index(fields=['user', 'is_active']),
+            models.Index(fields=['social_email']),
+        ]
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"{self.user.email} - {self.provider} ({self.social_id})"
+    
+    def clean(self):
+        """유효성 검사"""
+        # 같은 provider + social_id는 하나만 존재해야 함
+        if SocialAccount.objects.filter(
+            provider=self.provider,
+            social_id=self.social_id
+        ).exclude(id=self.id).exists():
+            raise ValidationError(
+                f'{self.provider} 계정 {self.social_id}는 이미 존재합니다.'
+            )
+        
+
+    # ========== 인스턴스 메서드 ==========
+    def update_profile(self, name=None, email=None, profile_image=None, extra_data=None):
+        """프로필 정보 업데이트"""
+        updated = False
+        
+        if name and self.social_name != name:
+            self.social_name = name
+            updated = True
+        
+        if email and self.social_email != email:
+            self.social_email = email
+            updated = True
+        
+        if extra_data:
+            self.extra_data.update(extra_data)
+            updated = True
+        
+        if updated:
+            self.save()
+    
+    def update_tokens(self, access_token=None, refresh_token=None, expires_in=None):
+        """토큰 정보 업데이트"""
+        if access_token:
+            self.access_token = access_token
+        if refresh_token:
+            self.refresh_token = refresh_token
+        if expires_in:
+            self.token_expires_at = timezone.now() + timedelta(seconds=expires_in)
+        
+        self.save(update_fields=['access_token', 'refresh_token', 'token_expires_at'])
+    
+    def update_last_login(self):
+        """마지막 로그인 시간 업데이트"""
+        self.last_login_at = timezone.now()
+        self.save(update_fields=['last_login_at'])
+    
+    def deactivate(self):
+        """계정 비활성화"""
+        self.is_active = False
+        self.save(update_fields=['is_active'])
+    
+    def reactivate(self):
+        """계정 재활성화"""
+        self.is_active = True
+        self.save(update_fields=['is_active'])
+
+    
+    # ========== 클래스 메서드 ==========
+    @classmethod
+    def find_or_create_user(cls, provider, social_id, **user_data):
+        """
+        소셜 계정으로 User 찾기 또는 생성
+        - 독립적인 User 생성
+        
+        Args:
+            provider: 'google', 'kakao', 'naver', 'apple'
+            social_id: 소셜 제공자의 고유 ID
+            **user_data: 사용자 정보
+                - email: 이메일
+                - nickname: 닉네임 (선택)
+                - name: 이름
+                - profile_image: 프로필 이미지 URL
+                - extra_data: 추가 데이터 (dict)
+        
+        Returns:
+            tuple: (user, created, social_account)
+                - user: User 인스턴스
+                - created: 신규 생성 여부
+                - social_account: SocialAccount 인스턴스
+        """
+        try:
+            # 1. 기존 소셜 계정 찾기
+            social_account = cls.objects.select_related('user').get(
+                provider=provider,
+                social_id=social_id,
+                is_active=True
+            )
+            
+            # 프로필 정보 업데이트
+            social_account.update_profile(
+                name=user_data.get('name'),
+                email=user_data.get('email'),
+                extra_data=user_data.get('extra_data')
+            )
+            
+            # 마지막 로그인 업데이트
+            social_account.update_last_login()
+            
+            return social_account.user, False, social_account
+        
+        except cls.DoesNotExist:
+            # 2. 새 User 생성
+            email = user_data.get('email')
+            nickname = user_data.get('nickname')
+            
+            # 이메일 기반 닉네임 생성
+            if not nickname:
+                nickname = email.split('@')[0] if email else f"{provider}_user"
+            
+            # User 생성
+            user = User.objects.create_user(
+                email=email,
+                nickname=nickname,
+            )
+            
+            # 3. SocialAccount 생성
+            social_account = cls.objects.create(
+                user=user,
+                provider=provider,
+                social_id=social_id,
+                social_email=user_data.get('email'),
+                social_name=user_data.get('name'),
+                profile_image=user_data.get('profile_image'),
+                extra_data=user_data.get('extra_data', {}),
+                last_login_at=timezone.now()
+            )
+            
+            return user, True, social_account
+    
+    @classmethod
+    def find_user_by_social(cls, provider, social_id):
+        """
+        소셜 계정으로 사용자 찾기
+        
+        Returns:
+            User 인스턴스 또는 None
+        """
+        try:
+            social_account = cls.objects.select_related('user').get(
+                provider=provider,
+                social_id=social_id,
+                is_active=True
+            )
+            return social_account.user
+        except cls.DoesNotExist:
+            return None
+    
+    @classmethod
+    def get_by_provider_and_user(cls, provider, user):
+        """특정 제공자의 사용자 소셜 계정 조회"""
+        try:
+            return cls.objects.get(
+                provider=provider,
+                user=user,
+                is_active=True
+            )
+        except cls.DoesNotExist:
+            return None
 
 # JWT Refresh Token 관리 모델
 class CustomRefreshToken(models.Model):
