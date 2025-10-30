@@ -153,7 +153,7 @@ class GoogleAuthProvider(BaseSocialAuthProvider):
             raise ValueError("Google 이메일 정보를 가져올 수 없습니다.")
         
         # 4. 표준 형식으로 변환
-        return {
+        result = {
             'social_id': user_data['id'],
             'email': user_data['email'],
             'name': user_data.get('name', ''),
@@ -163,6 +163,8 @@ class GoogleAuthProvider(BaseSocialAuthProvider):
                 'locale': user_data.get('locale', ''),
             }
         }
+        
+        return result
 
 
 # ========================================

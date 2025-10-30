@@ -19,10 +19,9 @@ class UserManager(BaseUserManager):
             raise ValueError('이메일은 필수입니다')
 
         email = self.normalize_email(email)
-        user = self.model(email=email, **extra_fields)
-
-        # nickname 자동 생성
-        if 'nickname' not in extra_fields or not extra_fields['nickname']:
+        
+        # nickname 자동 생성 (extra_fields에 없거나 빈 값인 경우)
+        if 'nickname' not in extra_fields or not extra_fields.get('nickname'):
             base_nickname = email.split('@')[0]
             nickname = base_nickname
             counter = 1
@@ -32,9 +31,11 @@ class UserManager(BaseUserManager):
                 nickname = f"{base_nickname}_{counter}"
                 counter += 1
             
-            user.nickname = nickname
-        else:
-            user.nickname = extra_fields['nickname']
+            # extra_fields에 설정
+            extra_fields['nickname'] = nickname
+        
+        # User 객체 생성 (이제 extra_fields에 nickname이 확실히 포함됨)
+        user = self.model(email=email, **extra_fields)
 
         if password:
             user.set_password(password)  # 비밀번호 해싱
@@ -252,7 +253,7 @@ class SocialAccount(models.Model):
         ('apple', 'Apple'),
     ]
 
-    # User 연결 (1:1)
+    # User 연결 (1:1 - 한 User가 하나의 소셜 계정만 가질 수 있음)
     user = models.OneToOneField(
         User,
         on_delete=models.CASCADE,
@@ -434,7 +435,7 @@ class SocialAccount(models.Model):
                 - social_account: SocialAccount 인스턴스
         """
         try:
-            # 1. 기존 소셜 계정 찾기
+            # 1. 기존 소셜 계정 찾기 (provider + social_id로 검색)
             social_account = cls.objects.select_related('user').get(
                 provider=provider,
                 social_id=social_id,
@@ -454,7 +455,8 @@ class SocialAccount(models.Model):
             return social_account.user, False, social_account
         
         except cls.DoesNotExist:
-            # 2. 새 User 생성
+            
+            # 2. 동일한 이메일을 가진 기존 User가 있는지 확인
             email = user_data.get('email')
             nickname = user_data.get('nickname')
             
@@ -462,25 +464,41 @@ class SocialAccount(models.Model):
             if not nickname:
                 nickname = email.split('@')[0] if email else f"{provider}_user"
             
-            # User 생성
-            user = User.objects.create_user(
-                email=email,
-                nickname=nickname,
-            )
+            user = None
+            is_new_user = False
             
-            # 3. SocialAccount 생성
-            social_account = cls.objects.create(
-                user=user,
-                provider=provider,
-                social_id=social_id,
-                social_email=user_data.get('email'),
-                social_name=user_data.get('name'),
-                profile_image=user_data.get('profile_image'),
-                extra_data=user_data.get('extra_data', {}),
-                last_login_at=timezone.now()
-            )
+            try:
+                # 2-1. 이메일로 기존 User 찾기
+                user = User.objects.get(email=email)
+                is_new_user = False
+                
+            except User.DoesNotExist:
+                # 2-2. 기존 User가 없으면 새로 생성
+                user = User.objects.create_user(
+                    email=email,
+                    password=None,  # OAuth 사용자는 비밀번호 없음
+                    nickname=nickname,
+                )
+                is_new_user = True
             
-            return user, True, social_account
+            # 3. SocialAccount 생성 (기존 유저든 신규 유저든 소셜 계정 연결)
+            try:
+                social_account = cls.objects.create(
+                    user=user,
+                    provider=provider,
+                    social_id=social_id,
+                    social_email=user_data.get('email'),
+                    social_name=user_data.get('name'),
+                    extra_data=user_data.get('extra_data', {}),
+                    last_login_at=timezone.now()
+                )
+                
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                raise
+            
+            return user, is_new_user, social_account
     
     @classmethod
     def find_user_by_social(cls, provider, social_id):
