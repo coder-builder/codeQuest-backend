@@ -81,7 +81,6 @@ class User(AbstractUser):
     profile_image_url = models.TextField(blank=True, null=True)
 
     # 게임 시스템
-    level = models.IntegerField(default=1)
     exp = models.IntegerField(default=0)
     hearts = models.IntegerField(default=5)
     coins = models.IntegerField(default=0)
