@@ -13,4 +13,5 @@ urlpatterns = [
 
     path('auth/', include('users.urls'), name='users'),  # users 앱의 URL
     path('rank/', include('rank.urls'), name='rank'),
+    path('progress/', include('progress.urls'), name='progress'),
 ]

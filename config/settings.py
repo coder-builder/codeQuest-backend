@@ -69,6 +69,7 @@ INSTALLED_APPS = [
     'api',              #실제 API 기능을 만들 작업 공간 폴더임
     'users',            #사용자 인증 관련 기능 담당 앱
     'rank',             #랭크
+    'progress',          #진행도
 ]
 
 # ========== Sites Framework ==========
