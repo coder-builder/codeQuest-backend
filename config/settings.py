@@ -69,6 +69,8 @@ INSTALLED_APPS = [
     'api',              #실제 API 기능을 만들 작업 공간 폴더임
     'users',            #사용자 인증 관련 기능 담당 앱
     'worlds',
+    'rank',             #랭크
+    'progress',          #진행도
 ]
 
 # ========== Sites Framework ==========
@@ -249,21 +251,22 @@ SOCIALACCOUNT_PROVIDERS = {
             'secret': config('GOOGLE_CLIENT_SECRET'),
             'key': ''
         }
-    },
-    'kakao': {
-        'APP': {
-            'client_id': config('KAKAO_REST_API_KEY'),
-            'secret': config('KAKAO_CLIENT_SECRET'),
-            'key': ''
-        }
-    },
-    'naver': {
-        'APP': {
-            'client_id': config('NAVER_CLIENT_ID'),
-            'secret': config('NAVER_CLIENT_SECRET'),
-            'key': ''
-        }
     }
+    # ,
+    # 'kakao': {
+    #     'APP': {
+    #         'client_id': config('KAKAO_REST_API_KEY'),
+    #         'secret': config('KAKAO_CLIENT_SECRET'),
+    #         'key': ''
+    #     }
+    # },
+    # 'naver': {
+    #     'APP': {
+    #         'client_id': config('NAVER_CLIENT_ID'),
+    #         'secret': config('NAVER_CLIENT_SECRET'),
+    #         'key': ''
+    #     }
+    # }
     # ,
     # 'apple': {
     #     'APP': {
