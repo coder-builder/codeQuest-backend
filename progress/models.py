@@ -259,54 +259,54 @@ class DailyStudy(models.Model):
     return (self.correct_answers / self.total_attempts) * 100
   
 
-  class StudySession(models.Model):
-    """학습 세션"""
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    user = models.ForeignKey(
-      settings.AUTH_USER_MODEL,
-      on_delete=models.CASCADE,
-      related_name='study_sessions'
-    )
+class StudySession(models.Model):
+  """학습 세션"""
+  id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+  user = models.ForeignKey(
+    settings.AUTH_USER_MODEL,
+    on_delete=models.CASCADE,
+    related_name='study_sessions'
+  )
 
-    # 세션 정보
-    session_start = models.DateTimeField(default=timezone.now)
-    session_end = models.DateTimeField(null=True, blank=True)
-    duration_seconds = models.IntegerField(default=0)  # in seconds
+  # 세션 정보
+  session_start = models.DateTimeField(default=timezone.now)
+  session_end = models.DateTimeField(null=True, blank=True)
+  duration_seconds = models.IntegerField(default=0)  # in seconds
 
-    # 학습 내용
-    world_name = models.CharField(max_length=50)
-    stage_number = models.IntegerField()
-    lesson_number = models.IntegerField()
+  # 학습 내용
+  world_name = models.CharField(max_length=50)
+  stage_number = models.IntegerField()
+  lesson_number = models.IntegerField()
 
-    # 세션 성과
-    problems_attempted = models.IntegerField(default=0)
-    problems_solved = models.IntegerField(default=0)
-    exp_gained = models.IntegerField(default=0)
+  # 세션 성과
+  problems_attempted = models.IntegerField(default=0)
+  problems_solved = models.IntegerField(default=0)
+  exp_gained = models.IntegerField(default=0)
 
-    # 상태
-    is_active = models.BooleanField(default=True)
-    completed_successfully = models.BooleanField(default=False)
+  # 상태
+  is_active = models.BooleanField(default=True)
+  completed_successfully = models.BooleanField(default=False)
 
-    # 타임스탬프
-    created_at = models.DateTimeField(auto_now_add=True)
+  # 타임스탬프
+  created_at = models.DateTimeField(auto_now_add=True)
 
-    class Meta:
-      db_table = 'study_sessions'
-      verbose_name = '학습 세션'
-      ordering = ['-session_start']
-      indexes = [
-        models.Index(fields=['user', 'is_active']),
-        models.Index(fields=['session_start']),
-      ]
+  class Meta:
+    db_table = 'study_sessions'
+    verbose_name = '학습 세션'
+    ordering = ['-session_start']
+    indexes = [
+      models.Index(fields=['user', 'is_active']),
+      models.Index(fields=['session_start']),
+    ]
 
-    def __str__(self):
-      return f"{self.user.nickname} - {self.session_start.strftime('%Y-%m-%d %H:%M')}"
+  def __str__(self):
+    return f"{self.user.nickname} - {self.session_start.strftime('%Y-%m-%d %H:%M')}"
 
-    def end_session(self):
-      """세션 종료"""
-      if self.session_end is None:
-        self.session_end = timezone.now()
-        self.duration_seconds = int((self.session_end - self.session_start).total_seconds())
-        self.is_active = False
-        self.completed_successfully = True
-        self.save()
+  def end_session(self):
+    """세션 종료"""
+    if self.session_end is None:
+      self.session_end = timezone.now()
+      self.duration_seconds = int((self.session_end - self.session_start).total_seconds())
+      self.is_active = False
+      self.completed_successfully = True
+      self.save()
