@@ -68,6 +68,7 @@ INSTALLED_APPS = [
     # My apps
     'api',              #실제 API 기능을 만들 작업 공간 폴더임
     'users',            #사용자 인증 관련 기능 담당 앱
+    'worlds',
     'rank',             #랭크
     'progress',          #진행도
 ]
