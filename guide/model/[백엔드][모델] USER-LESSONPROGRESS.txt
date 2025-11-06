@@ -1,0 +1,982 @@
+================================================================================
+                    UserLessonProgress 모델 완전 정리
+================================================================================
+
+작성일: 2025-11-06
+파일: problems/models.py
+
+
+================================================================================
+📦 모델 개요
+================================================================================
+
+[목적]
+사용자별 레슨 진행 상황 추적 (2라운드 시스템)
+레슨은 2라운드로 구성:
+- 1라운드: 모든 문제 풀기 (트라이얼 + 즉시 재시도)
+- 2라운드: 1라운드에서 틀린 문제만 다시 풀기
+
+[위치]
+Django App: problems
+파일: problems/models.py
+테이블명: problems_userlessonprogress
+
+[특징]
+- 2라운드 시스템 관리
+- 현재 풀고 있는 문제 추적 (current_problem_id)
+- 틀린 문제 자동 2라운드 이동
+- 포기 기능 지원 (abandon_count)
+- 완료 시 자동으로 다음 레슨 잠금 해제
+
+
+================================================================================
+🗂️ 필드 구조
+================================================================================
+
+user (ForeignKey)
+├─ 대상: settings.AUTH_USER_MODEL
+├─ on_delete: CASCADE
+├─ related_name: 'lesson_progresses'
+├─ 설명: 사용자
+└─ 역참조: user.lesson_progresses.all()
+
+lesson (ForeignKey)
+├─ 대상: Lesson
+├─ on_delete: CASCADE
+├─ related_name: 'user_progresses'
+├─ 설명: 레슨
+└─ 역참조: lesson.user_progresses.all()
+
+is_in_progress (BooleanField)
+├─ 기본값: False
+├─ 설명: 진행 중 여부
+└─ True: 진행 중, False: 시작 전 또는 완료
+
+is_completed (BooleanField)
+├─ 기본값: False
+├─ 설명: 완료 여부
+└─ 2라운드까지 모두 완료 시 True
+
+current_round (IntegerField)
+├─ 기본값: 1
+├─ 설명: 현재 라운드 (1 또는 2)
+└─ 1: 모든 문제, 2: 틀린 문제만
+
+current_problem_id (IntegerField)
+├─ null/blank: True
+├─ 설명: 현재 풀고 있는 문제 ID
+└─ 용도: "이어서 하기" 기능
+
+completed_problems (JSONField)
+├─ 기본값: list (빈 리스트)
+├─ 설명: 완료한 문제 ID 목록
+├─ 예시: [1, 2, 3]
+└─ 용도: 진행 상황 추적
+
+failed_problems_this_round (JSONField)
+├─ 기본값: list (빈 리스트)
+├─ 설명: 현재 라운드에서 틀린 문제 ID 목록
+├─ 예시: [2, 4]
+└─ 용도: 2라운드에서 풀 문제 결정
+
+abandon_count (IntegerField)
+├─ 기본값: 0
+├─ 설명: 포기 횟수
+└─ 용도: 통계, 분석
+
+started_at (DateTimeField)
+├─ null/blank: True
+├─ 설명: 시작 시간
+└─ 1라운드 시작 시점
+
+completed_at (DateTimeField)
+├─ null/blank: True
+├─ 설명: 완료 시간
+└─ 2라운드 완료 시점
+
+created_at (DateTimeField)
+├─ 자동 생성: auto_now_add=True
+└─ 설명: 생성일
+
+updated_at (DateTimeField)
+├─ 자동 업데이트: auto_now=True
+└─ 설명: 수정일
+
+
+================================================================================
+⚙️ Meta 설정
+================================================================================
+
+ordering = ['-updated_at']
+├─ 정렬: 최근 업데이트된 순
+└─ 용도: "최근 학습" 목록
+
+verbose_name = "사용자 레슨 진행 상황"
+verbose_name_plural = "사용자 레슨 진행 목록"
+
+unique_together = (('user', 'lesson'),)
+├─ 제약조건: (사용자, 레슨) 조합 유일
+└─ 효과: 한 사용자는 같은 레슨에 대해 1개의 진행 상황만
+
+
+================================================================================
+📊 프로퍼티 (Properties)
+================================================================================
+
+[@property] total_problems
+────────────────────────────────────────────────────────────────
+기능: 현재 라운드의 총 문제 수
+반환: int
+자동 실행: ❌
+
+구현:
+    @property
+    def total_problems(self):
+        if self.current_round == 1:
+            # 1라운드: 모든 문제
+            return self.lesson.problems.count()
+        else:
+            # 2라운드: 틀린 문제만
+            return len(self.failed_problems_this_round)
+
+동작:
+    1라운드: 레슨의 모든 문제 수
+    2라운드: failed_problems_this_round 리스트 길이
+
+사용 예시:
+    progress = UserLessonProgress.objects.get(user=user, lesson=lesson)
+    total = progress.total_problems
+    # 1라운드: 5개
+    # 2라운드: 2개 (1라운드에서 틀린 문제)
+
+주의사항:
+    ⚠️ 1라운드는 DB 쿼리 발생
+    ⚠️ 2라운드는 메모리 계산
+
+
+[@property] completed_problems_count
+────────────────────────────────────────────────────────────────
+기능: 현재 라운드에서 완료한 문제 수
+반환: int
+자동 실행: ❌
+
+구현:
+    @property
+    def completed_problems_count(self):
+        return len(self.completed_problems)
+
+동작:
+    completed_problems 리스트 길이
+
+사용 예시:
+    progress = UserLessonProgress.objects.get(user=user, lesson=lesson)
+    completed = progress.completed_problems_count
+    # 3개 완료
+
+
+[@property] progress_percentage
+────────────────────────────────────────────────────────────────
+기능: 현재 라운드 진행률 (퍼센트)
+반환: int (0-100)
+자동 실행: ❌
+
+구현:
+    @property
+    def progress_percentage(self):
+        if self.total_problems == 0:
+            return 0
+        return int((self.completed_problems_count / self.total_problems) * 100)
+
+계산식:
+    (완료한 문제 / 전체 문제) * 100
+
+사용 예시:
+    progress = UserLessonProgress.objects.get(user=user, lesson=lesson)
+    percentage = progress.progress_percentage
+    # 60% (5개 중 3개 완료)
+
+
+================================================================================
+🔧 메서드 (Methods)
+================================================================================
+
+[1] initialize_round_one()
+────────────────────────────────────────────────────────────────
+기능: 1라운드 초기화
+매개변수: 없음
+반환: None
+자동 실행: ❌
+
+구현:
+    def initialize_round_one(self):
+        """1라운드 시작"""
+        problems = self.lesson.problems.order_by('order')
+        
+        if problems.exists():
+            first_problem = problems.first()
+            self.current_problem_id = first_problem.id
+            self.current_round = 1
+            self.is_in_progress = True
+            self.completed_problems = []
+            self.failed_problems_this_round = []
+            
+            if not self.started_at:
+                self.started_at = timezone.now()
+            
+            self.save()
+
+동작:
+    1. 레슨의 첫 번째 문제 조회
+    2. current_problem_id 설정
+    3. current_round = 1
+    4. is_in_progress = True
+    5. completed_problems, failed_problems_this_round 초기화
+    6. started_at 설정 (최초 시작 시)
+    7. DB 저장
+
+호출 시점:
+    ✓ 레슨 시작할 때
+    ✓ 복습할 때 (reset_progress 후)
+
+사용 예시:
+    progress, created = UserLessonProgress.objects.get_or_create(
+        user=user,
+        lesson=lesson
+    )
+    progress.initialize_round_one()
+
+
+[2] initialize_round_two()
+────────────────────────────────────────────────────────────────
+기능: 2라운드 초기화
+매개변수: 없음
+반환: None
+자동 실행: ❌
+
+구현:
+    def initialize_round_two(self):
+        """2라운드 시작 (틀린 문제만)"""
+        if not self.failed_problems_this_round:
+            # 틀린 문제 없으면 완료
+            self.complete_lesson()
+            return
+        
+        # 첫 번째 틀린 문제
+        self.current_problem_id = self.failed_problems_this_round[0]
+        self.current_round = 2
+        self.completed_problems = []
+        self.save()
+
+동작:
+    1. failed_problems_this_round 확인
+       - 비어있으면: complete_lesson() 호출 (완료)
+       - 있으면: 다음 단계
+    2. 첫 번째 틀린 문제를 current_problem_id로 설정
+    3. current_round = 2
+    4. completed_problems 초기화
+    5. DB 저장
+
+호출 시점:
+    ✓ 1라운드 완료 후
+
+사용 예시:
+    # 1라운드 마지막 문제 완료
+    progress.mark_problem_completed(last_problem_id)
+    
+    # 다음 문제가 없으면 2라운드 시작
+    if not next_problem:
+        progress.initialize_round_two()
+
+
+[3] mark_problem_completed(problem_id)
+────────────────────────────────────────────────────────────────
+기능: 문제를 완료 처리
+매개변수: problem_id (int)
+반환: None
+자동 실행: ❌
+
+구현:
+    def mark_problem_completed(self, problem_id):
+        """문제 완료 처리"""
+        if problem_id not in self.completed_problems:
+            self.completed_problems.append(problem_id)
+        
+        # 2라운드면 틀린 문제 목록에서 제거
+        if self.current_round == 2:
+            if problem_id in self.failed_problems_this_round:
+                self.failed_problems_this_round.remove(problem_id)
+        
+        self.save()
+
+동작:
+    1. completed_problems에 추가 (중복 방지)
+    2. 2라운드인 경우:
+       - failed_problems_this_round에서 제거
+    3. DB 저장
+
+호출 시점:
+    ✓ 문제 정답 시
+    ✓ 즉시 재시도 문제 3번 실패 후 강제 통과 시
+
+사용 예시:
+    progress = UserLessonProgress.objects.get(user=user, lesson=lesson)
+    progress.mark_problem_completed(problem_id=3)
+
+
+[4] mark_problem_failed(problem_id)
+────────────────────────────────────────────────────────────────
+기능: 문제를 실패 처리 (2라운드로)
+매개변수: problem_id (int)
+반환: None
+자동 실행: ❌
+
+구현:
+    def mark_problem_failed(self, problem_id):
+        """문제 실패 처리 (2라운드로)"""
+        if problem_id not in self.failed_problems_this_round:
+            self.failed_problems_this_round.append(problem_id)
+        self.save()
+
+동작:
+    1. failed_problems_this_round에 추가 (중복 방지)
+    2. DB 저장
+
+호출 시점:
+    ✓ 트라이얼 문제 오답 시 (객관식, 단어 선택, 연결하기)
+
+사용 예시:
+    # 트라이얼 문제 오답
+    if problem.is_trial_problem() and not is_correct:
+        progress.mark_problem_failed(problem_id)
+        progress.move_to_next_problem()  # 다음 문제로
+
+
+[5] move_to_next_problem()
+────────────────────────────────────────────────────────────────
+기능: 다음 문제로 이동
+매개변수: 없음
+반환: None
+자동 실행: ❌
+
+구현:
+    def move_to_next_problem(self):
+        """다음 문제로 이동"""
+        if self.current_round == 1:
+            # 1라운드: 순서대로
+            problems = self.lesson.problems.order_by('order')
+            current_problem = Problem.objects.get(id=self.current_problem_id)
+            
+            next_problem = problems.filter(
+                order__gt=current_problem.order
+            ).first()
+            
+            if next_problem:
+                self.current_problem_id = next_problem.id
+            else:
+                # 1라운드 끝 → 2라운드 시작
+                self.initialize_round_two()
+                return
+        
+        else:  # round 2
+            # 2라운드: 틀린 문제 순서대로
+            current_index = self.failed_problems_this_round.index(
+                self.current_problem_id
+            )
+            
+            if current_index + 1 < len(self.failed_problems_this_round):
+                self.current_problem_id = self.failed_problems_this_round[current_index + 1]
+            else:
+                # 2라운드 끝 → 완료
+                self.complete_lesson()
+                return
+        
+        self.save()
+
+동작:
+    1라운드:
+        1. 현재 문제 다음 order의 문제 찾기
+        2. 있으면: current_problem_id 업데이트
+        3. 없으면: initialize_round_two() 호출
+    
+    2라운드:
+        1. failed_problems_this_round에서 현재 인덱스 찾기
+        2. 다음 인덱스가 있으면: 다음 문제로
+        3. 없으면: complete_lesson() 호출
+
+호출 시점:
+    ✓ 문제 정답 후
+    ✓ 트라이얼 문제 오답 후
+    ✓ 즉시 재시도 문제 3번 실패 후
+
+사용 예시:
+    progress = UserLessonProgress.objects.get(user=user, lesson=lesson)
+    progress.mark_problem_completed(problem_id)
+    progress.move_to_next_problem()
+
+
+[6] complete_lesson()
+────────────────────────────────────────────────────────────────
+기능: 레슨 완료 처리
+매개변수: 없음
+반환: None
+자동 실행: ❌
+
+구현:
+    def complete_lesson(self):
+        """레슨 완료"""
+        self.is_completed = True
+        self.is_in_progress = False
+        self.completed_at = timezone.now()
+        self.current_problem_id = None
+        self.save()
+        
+        # UserWorld 업데이트
+        user_world = UserWorld.objects.get(
+            user=self.user,
+            world=self.lesson.stage.world
+        )
+        user_world.update_progress()
+        user_world.touch()
+        
+        # UserStageProgress 업데이트
+        stage_progress, _ = UserStageProgress.objects.get_or_create(
+            user=self.user,
+            stage=self.lesson.stage
+        )
+        stage_progress.update_progress()
+
+동작:
+    1. is_completed = True
+    2. is_in_progress = False
+    3. completed_at = 현재 시간
+    4. current_problem_id = None
+    5. DB 저장
+    6. UserWorld.update_progress() 호출
+    7. UserWorld.touch() 호출
+    8. UserStageProgress.update_progress() 호출
+
+호출 시점:
+    ✓ 2라운드 완료 시
+    ✓ 2라운드 진입 시 틀린 문제가 없을 때
+
+사용 예시:
+    # 자동 호출됨
+    progress.initialize_round_two()  # 내부에서 호출
+    progress.move_to_next_problem()  # 내부에서 호출
+
+
+[7] reset_progress()
+────────────────────────────────────────────────────────────────
+기능: 진행 상황 초기화 (복습용)
+매개변수: 없음
+반환: None
+자동 실행: ❌
+
+구현:
+    def reset_progress(self):
+        """복습을 위한 초기화"""
+        self.is_completed = False
+        self.is_in_progress = False
+        self.current_round = 1
+        self.current_problem_id = None
+        self.completed_problems = []
+        self.failed_problems_this_round = []
+        self.completed_at = None
+        self.save()
+
+동작:
+    모든 진행 상황을 초기 상태로 되돌림
+    (started_at은 유지)
+
+호출 시점:
+    ✓ 레슨 복습 시작 전
+
+사용 예시:
+    progress = UserLessonProgress.objects.get(user=user, lesson=lesson)
+    progress.reset_progress()
+    progress.initialize_round_one()
+
+
+[8] abandon_lesson()
+────────────────────────────────────────────────────────────────
+기능: 레슨 포기 처리
+매개변수: 없음
+반환: None
+자동 실행: ❌
+
+구현:
+    def abandon_lesson(self):
+        """레슨 포기"""
+        self.abandon_count += 1
+        self.is_in_progress = False
+        self.save()
+
+동작:
+    1. abandon_count 증가
+    2. is_in_progress = False
+    3. DB 저장
+    (진행 상황은 유지됨)
+
+호출 시점:
+    ✓ 사용자가 "포기" 버튼 클릭 시
+
+사용 예시:
+    progress = UserLessonProgress.objects.get(user=user, lesson=lesson)
+    progress.abandon_lesson()
+
+
+[9] get_current_problem()
+────────────────────────────────────────────────────────────────
+기능: 현재 문제 객체 반환
+매개변수: 없음
+반환: Problem 객체 또는 None
+자동 실행: ❌
+
+구현:
+    def get_current_problem(self):
+        """현재 문제 가져오기"""
+        if self.current_problem_id:
+            try:
+                return Problem.objects.get(id=self.current_problem_id)
+            except Problem.DoesNotExist:
+                return None
+        return None
+
+동작:
+    current_problem_id로 Problem 조회
+
+호출 시점:
+    ✓ 레슨 이어하기
+    ✓ 현재 문제 표시
+
+사용 예시:
+    progress = UserLessonProgress.objects.get(user=user, lesson=lesson)
+    current = progress.get_current_problem()
+    
+    if current:
+        print(f"현재 문제: {current.title}")
+
+
+[10] __str__()
+────────────────────────────────────────────────────────────────
+기능: 문자열 표현
+반환: f"{self.user.username} - {self.lesson.title} (Round {self.current_round})"
+예시: "user1 - 변수 선언하기 (Round 1)"
+
+
+================================================================================
+💾 데이터베이스 구조
+================================================================================
+
+CREATE TABLE problems_userlessonprogress (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    lesson_id BIGINT NOT NULL,
+    is_in_progress TINYINT(1) NOT NULL DEFAULT 0,
+    is_completed TINYINT(1) NOT NULL DEFAULT 0,
+    current_round INT NOT NULL DEFAULT 1,
+    current_problem_id INT NULL,
+    completed_problems JSON NOT NULL,
+    failed_problems_this_round JSON NOT NULL,
+    abandon_count INT NOT NULL DEFAULT 0,
+    started_at DATETIME(6) NULL,
+    completed_at DATETIME(6) NULL,
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    UNIQUE KEY unique_user_lesson (user_id, lesson_id),
+    FOREIGN KEY (user_id) REFERENCES users_user(id),
+    FOREIGN KEY (lesson_id) REFERENCES problems_lesson(id)
+);
+
+
+================================================================================
+🎯 사용 예시
+================================================================================
+
+[1. 레슨 시작]
+────────────────────────────────────────────────────────────────
+lesson = Lesson.objects.get(id=1)
+
+# 진행 상황 생성 또는 가져오기
+progress, created = UserLessonProgress.objects.get_or_create(
+    user=user,
+    lesson=lesson
+)
+
+# 복습이면 초기화
+if progress.is_completed:
+    progress.reset_progress()
+
+# 1라운드 시작
+progress.initialize_round_one()
+
+# 첫 문제
+current_problem = progress.get_current_problem()
+
+
+[2. 문제 정답 처리]
+────────────────────────────────────────────────────────────────
+progress = UserLessonProgress.objects.get(user=user, lesson=lesson)
+problem = progress.get_current_problem()
+
+# 정답 확인
+is_correct = check_answer(answer, problem)
+
+if is_correct:
+    # 완료 표시
+    progress.mark_problem_completed(problem.id)
+    
+    # 다음 문제로
+    progress.move_to_next_problem()
+    
+    # 완료됐는지 확인
+    if progress.is_completed:
+        print("레슨 완료!")
+    else:
+        next_problem = progress.get_current_problem()
+        print(f"다음 문제: {next_problem.title}")
+
+
+[3. 트라이얼 문제 오답 처리]
+────────────────────────────────────────────────────────────────
+progress = UserLessonProgress.objects.get(user=user, lesson=lesson)
+problem = progress.get_current_problem()
+
+if problem.is_trial_problem() and not is_correct:
+    # 실패 표시 (2라운드로)
+    progress.mark_problem_failed(problem.id)
+    
+    # 다음 문제로 (즉시)
+    progress.move_to_next_problem()
+
+
+[4. 레슨 이어하기]
+────────────────────────────────────────────────────────────────
+progress = UserLessonProgress.objects.get(user=user, lesson=lesson)
+
+if progress.is_in_progress:
+    current = progress.get_current_problem()
+    
+    return Response({
+        'message': '이어서 시작!',
+        'current_round': progress.current_round,
+        'completed': progress.completed_problems_count,
+        'total': progress.total_problems,
+        'percentage': progress.progress_percentage,
+        'current_problem': ProblemSerializer(current).data
+    })
+
+
+[5. 진행 상황 조회]
+────────────────────────────────────────────────────────────────
+progress = UserLessonProgress.objects.get(user=user, lesson=lesson)
+
+print(f"라운드: {progress.current_round}")
+print(f"진행률: {progress.progress_percentage}%")
+print(f"완료: {progress.completed_problems_count}/{progress.total_problems}")
+print(f"포기: {progress.abandon_count}번")
+
+if progress.current_round == 2:
+    print(f"틀린 문제: {len(progress.failed_problems_this_round)}개")
+
+
+================================================================================
+🌐 API Serializer 예시
+================================================================================
+
+# problems/serializers.py
+
+from rest_framework import serializers
+from .models import UserLessonProgress
+
+class UserLessonProgressSerializer(serializers.ModelSerializer):
+    lesson_title = serializers.CharField(source='lesson.title', read_only=True)
+    total_problems = serializers.IntegerField(read_only=True)
+    completed_problems_count = serializers.IntegerField(read_only=True)
+    progress_percentage = serializers.IntegerField(read_only=True)
+    current_problem = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = UserLessonProgress
+        fields = [
+            'id',
+            'lesson',
+            'lesson_title',
+            'is_in_progress',
+            'is_completed',
+            'current_round',
+            'current_problem_id',
+            'current_problem',
+            'completed_problems',
+            'completed_problems_count',
+            'failed_problems_this_round',
+            'total_problems',
+            'progress_percentage',
+            'abandon_count',
+            'started_at',
+            'completed_at',
+            'created_at',
+            'updated_at'
+        ]
+        read_only_fields = [
+            'is_in_progress',
+            'is_completed',
+            'current_round',
+            'completed_problems',
+            'failed_problems_this_round',
+            'abandon_count',
+            'started_at',
+            'completed_at',
+            'created_at',
+            'updated_at'
+        ]
+    
+    def get_current_problem(self, obj):
+        problem = obj.get_current_problem()
+        if problem:
+            from .serializers import ProblemSerializer
+            return ProblemSerializer(problem).data
+        return None
+
+
+[API 응답 예시]
+────────────────────────────────────────────────────────────────
+{
+    "id": 1,
+    "lesson": 1,
+    "lesson_title": "변수 선언하기",
+    "is_in_progress": true,
+    "is_completed": false,
+    "current_round": 2,
+    "current_problem_id": 4,
+    "current_problem": {
+        "id": 4,
+        "title": "두 변수의 합",
+        "problem_type": "coding"
+    },
+    "completed_problems": [2],
+    "completed_problems_count": 1,
+    "failed_problems_this_round": [2, 4],
+    "total_problems": 2,
+    "progress_percentage": 50,
+    "abandon_count": 0,
+    "started_at": "2025-11-04T10:00:00Z",
+    "completed_at": null,
+    "created_at": "2025-11-04T10:00:00Z",
+    "updated_at": "2025-11-04T14:30:00Z"
+}
+
+
+================================================================================
+🎮 실전 활용 시나리오
+================================================================================
+
+[시나리오 1: 레슨 시작 API]
+────────────────────────────────────────────────────────────────
+@api_view(['POST'])
+def start_lesson(request, lesson_id):
+    """레슨 시작"""
+    lesson = Lesson.objects.get(id=lesson_id)
+    
+    # 상태 확인
+    status = lesson.get_status_for_user(request.user)
+    if status == 'locked':
+        return Response({'error': '이전 레슨 완료 필요'}, status=403)
+    
+    # 진행 상황 생성 또는 가져오기
+    progress, created = UserLessonProgress.objects.get_or_create(
+        user=request.user,
+        lesson=lesson
+    )
+    
+    # 복습이면 초기화
+    if status == 'completed':
+        progress.reset_progress()
+    
+    # 1라운드 시작
+    progress.initialize_round_one()
+    
+    # 첫 문제
+    current = progress.get_current_problem()
+    
+    return Response({
+        'message': '복습 시작!' if status == 'completed' else '레슨 시작!',
+        'progress': UserLessonProgressSerializer(progress).data,
+        'current_problem': ProblemSerializer(current).data
+    })
+
+
+[시나리오 2: 문제 제출 API]
+────────────────────────────────────────────────────────────────
+@api_view(['POST'])
+def submit_answer(request, lesson_id):
+    """답안 제출"""
+    progress = UserLessonProgress.objects.get(
+        user=request.user,
+        lesson_id=lesson_id
+    )
+    
+    problem = progress.get_current_problem()
+    answer = request.data.get('answer')
+    
+    # 정답 확인
+    is_correct = validate_answer(answer, problem)
+    
+    if is_correct:
+        # 완료 처리
+        progress.mark_problem_completed(problem.id)
+        progress.move_to_next_problem()
+        
+        # 레슨 완료?
+        if progress.is_completed:
+            return Response({
+                'status': 'lesson_complete',
+                'message': '레슨 완료!',
+                'progress': UserLessonProgressSerializer(progress).data
+            })
+        
+        # 다음 문제
+        next_problem = progress.get_current_problem()
+        return Response({
+            'status': 'correct',
+            'next_problem': ProblemSerializer(next_problem).data
+        })
+    
+    else:
+        # 트라이얼 문제
+        if problem.is_trial_problem():
+            progress.mark_problem_failed(problem.id)
+            progress.move_to_next_problem()
+            
+            next_problem = progress.get_current_problem()
+            return Response({
+                'status': 'wrong_trial',
+                'hint': get_hint(problem, attempt_count),
+                'next_problem': ProblemSerializer(next_problem).data
+            })
+        
+        # 즉시 재시도
+        else:
+            attempt_count += 1
+            if attempt_count >= 3:
+                # 강제 통과
+                progress.move_to_next_problem()
+            
+            return Response({
+                'status': 'wrong_retry',
+                'hint': get_hint(problem, attempt_count),
+                'attempt_count': attempt_count
+            })
+
+
+[시나리오 3: 레슨 포기 API]
+────────────────────────────────────────────────────────────────
+@api_view(['POST'])
+def abandon_lesson(request, lesson_id):
+    """레슨 포기"""
+    progress = UserLessonProgress.objects.get(
+        user=request.user,
+        lesson_id=lesson_id
+    )
+    
+    progress.abandon_lesson()
+    
+    return Response({
+        'message': '레슨을 포기했습니다',
+        'abandon_count': progress.abandon_count
+    })
+
+
+================================================================================
+⚠️ 주의사항
+================================================================================
+
+[1. 자동 실행 안 됨]
+────────────────────────────────────────────────────────────────
+⚠️ 모든 메서드는 명시적으로 호출해야 함!
+
+잘못된 예:
+    progress.mark_problem_completed(1)
+    # → move_to_next_problem() 자동 호출 안 됨!
+
+올바른 예:
+    progress.mark_problem_completed(1)
+    progress.move_to_next_problem()  # ✅
+
+
+[2. JSON 필드 타입]
+────────────────────────────────────────────────────────────────
+⚠️ completed_problems, failed_problems_this_round는 리스트
+⚠️ 수정 후 save() 필수!
+
+잘못된 예:
+    progress.completed_problems.append(1)
+    # → DB 저장 안 됨!
+
+올바른 예:
+    progress.completed_problems.append(1)
+    progress.save()  # ✅
+
+
+[3. unique_together]
+────────────────────────────────────────────────────────────────
+같은 사용자는 같은 레슨에 대해 1개의 진행 상황만
+
+❌ IntegrityError:
+    UserLessonProgress.objects.create(user=user1, lesson=lesson1)
+    UserLessonProgress.objects.create(user=user1, lesson=lesson1)
+
+✅ 안전한 방법:
+    progress, created = UserLessonProgress.objects.get_or_create(
+        user=user1,
+        lesson=lesson1
+    )
+
+
+[4. 2라운드 시스템]
+────────────────────────────────────────────────────────────────
+1라운드: 모든 문제
+    → 트라이얼 틀리면 failed_problems_this_round에 추가
+    → 즉시 재시도는 맞을 때까지
+
+2라운드: failed_problems_this_round만
+    → 모두 맞추면 완료
+
+
+================================================================================
+📝 데이터 예시
+================================================================================
+
+[1라운드 진행 중]
+────────────────────────────────────────────────────────────────
+current_round: 1
+current_problem_id: 3
+completed_problems: [1, 2]  # 문제 1, 2 완료
+failed_problems_this_round: [2]  # 문제 2 틀림
+total_problems: 5
+progress_percentage: 40%
+
+[2라운드 진행 중]
+────────────────────────────────────────────────────────────────
+current_round: 2
+current_problem_id: 2
+completed_problems: []  # 2라운드에서 새로 시작
+failed_problems_this_round: [2, 4]  # 1라운드에서 틀린 문제
+total_problems: 2
+progress_percentage: 0%
+
+
+================================================================================
+🔗 관련 모델 링크
+================================================================================
+
+→ Lesson: 레슨 정보
+→ Problem: 문제 정보
+→ ProblemAttempt: 문제별 시도 기록
+→ UserWorld: 월드 진행 상황
+→ UserStageProgress: 스테이지 진행 상황
+
+
+================================================================================
+끝!
+================================================================================

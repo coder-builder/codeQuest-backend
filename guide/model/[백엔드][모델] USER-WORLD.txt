@@ -1,0 +1,568 @@
+================================================================================
+                        UserWorld 모델 완전 정리
+================================================================================
+
+작성일: 2025-11-06
+파일: worlds/models.py
+
+
+================================================================================
+📦 모델 개요
+================================================================================
+
+[목적]
+사용자별 월드 학습 진행 상황 추적
+각 사용자가 어떤 월드를 학습 중이고, 어디까지 진행했는지 관리
+
+[위치]
+Django App: worlds
+파일: worlds/models.py
+테이블명: worlds_userworld
+
+[특징]
+- User와 World의 다대다(M:N) 중간 테이블
+- unique_together로 (user, world) 조합 유일성 보장
+- 진행률, 마지막 공부 시간 등 추적
+
+
+================================================================================
+🗂️ 필드 구조
+================================================================================
+
+user (ForeignKey)
+├─ 대상: settings.AUTH_USER_MODEL (users.User)
+├─ on_delete: CASCADE
+├─ related_name: 'user_worlds'
+├─ 설명: 사용자
+└─ 역참조: user.user_worlds.all()
+
+world (ForeignKey)
+├─ 대상: World
+├─ on_delete: CASCADE
+├─ related_name: 'user_progresses'
+├─ 설명: 월드
+└─ 역참조: world.user_progresses.all()
+
+is_unlocked (BooleanField)
+├─ 기본값: False
+├─ 설명: 잠금 해제 여부 (사용자별)
+└─ 용도: 사용자가 이 월드에 접근 가능한지
+
+completed_stage (IntegerField)
+├─ 기본값: 0
+├─ 설명: 완료한 스테이지 수
+└─ 업데이트: update_progress() 메서드 호출 시
+
+last_studied_at (DateTimeField)
+├─ null/blank: True
+├─ 설명: 마지막 공부 시간
+├─ 업데이트: touch() 메서드 호출 시
+└─ 용도: 최근 학습 월드 정렬
+
+created_at (DateTimeField)
+├─ 자동 생성: auto_now_add=True
+├─ 설명: 시작 시간
+└─ 별칭: started_at (property)
+
+updated_at (DateTimeField)
+├─ 자동 업데이트: auto_now=True
+├─ 설명: 수정 시간
+└─ 자동 갱신
+
+
+================================================================================
+⚙️ Meta 설정
+================================================================================
+
+ordering = ['-last_studied_at', '-created_at']
+├─ 정렬 순서: 최근 공부한 월드가 맨 위
+├─ 1순위: last_studied_at (내림차순)
+└─ 2순위: created_at (내림차순)
+
+unique_together = (('user', 'world'),)
+├─ 제약조건: (사용자, 월드) 조합 유일
+└─ 효과: 한 사용자는 같은 월드에 대해 1개의 UserWorld만 가능
+
+verbose_name = "사용자 코딩 언어 월드"
+verbose_name_plural = "사용자 월드 진행 사항 목록"
+
+
+================================================================================
+📊 프로퍼티 (Properties)
+================================================================================
+
+[@property] total_stage
+────────────────────────────────────────────────────────────────
+기능: 월드 내 총 스테이지 수를 동적으로 계산
+반환: int
+자동 실행: ❌ (접근 시만)
+
+구현:
+    @property
+    def total_stage(self):
+        return self.world.stages.count()
+
+사용법:
+    user_world = UserWorld.objects.get(user=user, world=python)
+    total = user_world.total_stage
+    # 결과: 5
+
+특징:
+    ✓ 필드가 아니라 계산된 값
+    ✓ World의 stages를 COUNT 쿼리
+    ✓ 항상 최신 값 (Stage 추가/삭제 시 자동 반영)
+
+주의사항:
+    ⚠️ 매번 DB 쿼리 발생
+    ⚠️ 반복 사용 시 변수에 저장 권장
+
+
+[@property] progress_percentage
+────────────────────────────────────────────────────────────────
+기능: 월드 진행률을 퍼센트로 계산
+반환: int (0-100)
+자동 실행: ❌
+
+구현:
+    @property
+    def progress_percentage(self):
+        if self.total_stage == 0:
+            return 0
+        return int((self.completed_stage / self.total_stage) * 100)
+
+사용법:
+    user_world = UserWorld.objects.get(user=user, world=python)
+    progress = user_world.progress_percentage
+    # 결과: 60 (5개 중 3개 완료)
+
+계산식:
+    (완료한 스테이지 / 전체 스테이지) * 100
+
+예시:
+    completed_stage = 3, total_stage = 5
+    → (3 / 5) * 100 = 60%
+
+
+[@property] started_at
+────────────────────────────────────────────────────────────────
+기능: 시작 시간 별칭 (created_at과 동일)
+반환: datetime
+자동 실행: ❌
+
+구현:
+    @property
+    def started_at(self):
+        return self.created_at
+
+사용법:
+    user_world = UserWorld.objects.get(user=user, world=python)
+    started = user_world.started_at
+    # user_world.created_at과 동일한 값
+
+용도:
+    더 명확한 의미의 별칭 제공
+
+
+================================================================================
+🔧 메서드 (Methods)
+================================================================================
+
+[메서드] update_progress()
+────────────────────────────────────────────────────────────────
+기능: 완료한 스테이지 수를 재계산하여 업데이트
+매개변수: 없음
+반환: None
+자동 실행: ❌ (명시적 호출 필요!)
+
+구현:
+    def update_progress(self):
+        self.completed_stage = UserStageProgress.objects.filter(
+            user=self.user,
+            stage__world=self.world,
+            is_completed=True
+        ).count()
+        self.save(update_fields=['completed_stage'])
+
+동작:
+    1. UserStageProgress에서 조건 검색:
+       - user = 이 사용자
+       - stage__world = 이 월드
+       - is_completed = True
+    2. COUNT로 개수 세기
+    3. completed_stage 필드 업데이트
+    4. DB 저장 (completed_stage만)
+
+호출 시점:
+    ✓ 사용자가 스테이지를 완료했을 때
+    ✓ 진행 상황을 동기화해야 할 때
+    ✓ 관리자가 수동으로 진행률 재계산할 때
+
+사용 예시:
+    # 스테이지 완료 후
+    stage_progress = UserStageProgress.objects.get(...)
+    stage_progress.is_completed = True
+    stage_progress.save()
+    
+    # UserWorld 업데이트
+    user_world = UserWorld.objects.get(user=user, world=world)
+    user_world.update_progress()  # completed_stage 재계산
+
+
+[메서드] touch()
+────────────────────────────────────────────────────────────────
+기능: 마지막 공부 시간 업데이트
+매개변수: 없음
+반환: None
+자동 실행: ❌ (명시적 호출 필요!)
+
+구현:
+    def touch(self):
+        self.last_studied_at = timezone.now()
+        self.save(update_fields=['last_studied_at'])
+
+동작:
+    1. last_studied_at을 현재 시간으로 설정
+    2. DB 저장 (last_studied_at만)
+
+호출 시점:
+    ✓ 사용자가 레슨을 풀었을 때
+    ✓ 학습 활동이 있을 때
+    ✗ 단순 조회는 touch 안 함
+
+사용 예시:
+    # 레슨 완료 후
+    user_world = UserWorld.objects.get(user=user, world=world)
+    user_world.touch()
+    # last_studied_at이 현재 시간으로 업데이트
+    
+    # 이제 이 월드가 "최근 학습" 맨 위로!
+
+중요:
+    ⚠️ 실제 학습 활동만 기록
+    ⚠️ 조회/탐색은 touch 하지 않음
+
+
+[메서드] __str__()
+────────────────────────────────────────────────────────────────
+기능: 문자열 표현
+반환: f"{self.user.username} - {self.world.title}"
+예시: "user1 - Python", "admin - JavaScript"
+
+
+================================================================================
+💾 데이터베이스 구조
+================================================================================
+
+CREATE TABLE worlds_userworld (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    world_id BIGINT NOT NULL,
+    is_unlocked TINYINT(1) NOT NULL DEFAULT 0,
+    completed_stage INT NOT NULL DEFAULT 0,
+    last_studied_at DATETIME(6) NULL,
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    UNIQUE KEY unique_user_world (user_id, world_id),
+    FOREIGN KEY (user_id) REFERENCES users_user(id),
+    FOREIGN KEY (world_id) REFERENCES worlds_world(id)
+);
+
+
+================================================================================
+🎯 사용 예시
+================================================================================
+
+[1. UserWorld 생성 (시작)]
+────────────────────────────────────────────────────────────────
+from django.utils import timezone
+
+# get_or_create 사용 (중복 방지)
+user_world, created = UserWorld.objects.get_or_create(
+    user=user,
+    world=python_world,
+    defaults={
+        'is_unlocked': True,
+        'started_at': timezone.now()
+    }
+)
+
+if created:
+    print("새로운 월드 시작!")
+else:
+    print("이미 시작한 월드")
+
+
+[2. 진행 상황 조회]
+────────────────────────────────────────────────────────────────
+user_world = UserWorld.objects.get(user=user, world=python_world)
+
+print(f"전체 스테이지: {user_world.total_stage}")
+print(f"완료 스테이지: {user_world.completed_stage}")
+print(f"진행률: {user_world.progress_percentage}%")
+print(f"마지막 공부: {user_world.last_studied_at}")
+
+
+[3. 레슨 완료 후 업데이트]
+────────────────────────────────────────────────────────────────
+def complete_lesson(user, lesson):
+    """레슨 완료 처리"""
+    world = lesson.stage.world
+    
+    # UserWorld 가져오기
+    user_world, _ = UserWorld.objects.get_or_create(
+        user=user,
+        world=world,
+        defaults={'is_unlocked': True}
+    )
+    
+    # 마지막 공부 시간 업데이트
+    user_world.touch()
+    
+    # 진행률 재계산
+    user_world.update_progress()
+
+
+[4. 사용자의 모든 월드 조회 (최근 학습 순)]
+────────────────────────────────────────────────────────────────
+user_worlds = UserWorld.objects.filter(
+    user=user,
+    is_unlocked=True
+).select_related('world')
+
+for uw in user_worlds:
+    print(f"{uw.world.title}: {uw.progress_percentage}%")
+
+
+[5. 특정 월드 진행률 확인]
+────────────────────────────────────────────────────────────────
+try:
+    user_world = UserWorld.objects.get(user=user, world=python_world)
+    progress = user_world.progress_percentage
+    print(f"Python 진행률: {progress}%")
+except UserWorld.DoesNotExist:
+    print("아직 Python을 시작하지 않음")
+
+
+================================================================================
+🌐 API Serializer 예시
+================================================================================
+
+# worlds/serializers.py
+
+from rest_framework import serializers
+from .models import UserWorld
+
+class UserWorldSerializer(serializers.ModelSerializer):
+    world_title = serializers.CharField(source='world.title', read_only=True)
+    world_icon = serializers.CharField(source='world.icon', read_only=True)
+    total_stage = serializers.IntegerField(read_only=True)
+    progress_percentage = serializers.IntegerField(read_only=True)
+    started_at = serializers.DateTimeField(read_only=True)
+    
+    class Meta:
+        model = UserWorld
+        fields = [
+            'id',
+            'world',
+            'world_title',
+            'world_icon',
+            'is_unlocked',
+            'completed_stage',
+            'total_stage',
+            'progress_percentage',
+            'last_studied_at',
+            'started_at',
+            'created_at'
+        ]
+        read_only_fields = [
+            'completed_stage',
+            'last_studied_at',
+            'created_at'
+        ]
+
+
+[API 응답 예시]
+────────────────────────────────────────────────────────────────
+{
+    "id": 1,
+    "world": 1,
+    "world_title": "Python",
+    "world_icon": "🐍",
+    "is_unlocked": true,
+    "completed_stage": 3,
+    "total_stage": 5,
+    "progress_percentage": 60,
+    "last_studied_at": "2025-11-04T14:30:00Z",
+    "started_at": "2025-11-01T10:00:00Z",
+    "created_at": "2025-11-01T10:00:00Z"
+}
+
+
+================================================================================
+🎮 실전 활용 시나리오
+================================================================================
+
+[시나리오 1: 홈 화면 - 최근 학습 월드]
+────────────────────────────────────────────────────────────────
+@api_view(['GET'])
+def recent_worlds(request):
+    """최근 학습한 월드 목록"""
+    user_worlds = UserWorld.objects.filter(
+        user=request.user,
+        is_unlocked=True
+    ).select_related('world')[:3]  # 최근 3개
+    
+    serializer = UserWorldSerializer(user_worlds, many=True)
+    return Response(serializer.data)
+
+
+[시나리오 2: 월드 시작하기]
+────────────────────────────────────────────────────────────────
+@api_view(['POST'])
+def start_world(request, world_id):
+    """월드 시작하기"""
+    world = World.objects.get(id=world_id)
+    
+    user_world, created = UserWorld.objects.get_or_create(
+        user=request.user,
+        world=world,
+        defaults={'is_unlocked': True}
+    )
+    
+    if created:
+        return Response({
+            'message': f'{world.title} 월드를 시작했습니다!',
+            'data': UserWorldSerializer(user_world).data
+        })
+    else:
+        return Response({
+            'message': '이미 시작한 월드입니다.',
+            'data': UserWorldSerializer(user_world).data
+        })
+
+
+[시나리오 3: 학습 통계]
+────────────────────────────────────────────────────────────────
+@api_view(['GET'])
+def my_learning_stats(request):
+    """내 학습 통계"""
+    user_worlds = UserWorld.objects.filter(
+        user=request.user,
+        is_unlocked=True
+    ).select_related('world')
+    
+    total_worlds = user_worlds.count()
+    total_stages = sum(uw.total_stage for uw in user_worlds)
+    completed_stages = sum(uw.completed_stage for uw in user_worlds)
+    
+    overall_progress = (
+        int((completed_stages / total_stages) * 100)
+        if total_stages > 0 else 0
+    )
+    
+    return Response({
+        'total_worlds': total_worlds,
+        'total_stages': total_stages,
+        'completed_stages': completed_stages,
+        'overall_progress': overall_progress,
+        'worlds': UserWorldSerializer(user_worlds, many=True).data
+    })
+
+
+================================================================================
+⚠️ 주의사항
+================================================================================
+
+[1. unique_together 제약]
+────────────────────────────────────────────────────────────────
+같은 사용자가 같은 월드에 대해 2개 이상의 UserWorld를 가질 수 없음
+
+❌ 오류 발생:
+    UserWorld.objects.create(user=user1, world=python)
+    UserWorld.objects.create(user=user1, world=python)
+    # IntegrityError!
+
+✅ 안전한 방법:
+    user_world, created = UserWorld.objects.get_or_create(
+        user=user1,
+        world=python
+    )
+
+
+[2. 자동 실행 안 됨]
+────────────────────────────────────────────────────────────────
+⚠️ update_progress()와 touch()는 자동으로 호출되지 않음!
+⚠️ 명시적으로 호출해야 함!
+
+잘못된 예:
+    # 레슨 완료해도 UserWorld는 자동 업데이트 안 됨!
+    lesson_progress.is_completed = True
+    lesson_progress.save()
+    # → UserWorld.completed_stage는 그대로!
+
+올바른 예:
+    lesson_progress.is_completed = True
+    lesson_progress.save()
+    
+    user_world = UserWorld.objects.get(...)
+    user_world.update_progress()  # ✅ 명시적 호출
+    user_world.touch()  # ✅ 명시적 호출
+
+
+[3. N+1 쿼리 주의]
+────────────────────────────────────────────────────────────────
+❌ N+1 쿼리 발생:
+    user_worlds = UserWorld.objects.filter(user=user)
+    for uw in user_worlds:
+        print(uw.world.title)  # 각각 쿼리!
+        print(uw.total_stage)  # 각각 쿼리!
+
+✅ select_related 사용:
+    user_worlds = UserWorld.objects.filter(user=user)\
+        .select_related('world')
+    for uw in user_worlds:
+        print(uw.world.title)  # 조인으로 한 번에!
+        print(uw.total_stage)  # 여전히 각각 쿼리 (property)
+
+
+[4. Property 반복 사용]
+────────────────────────────────────────────────────────────────
+❌ 매번 DB 쿼리:
+    for i in range(10):
+        print(user_world.total_stage)  # 10번 쿼리!
+
+✅ 변수에 저장:
+    total = user_world.total_stage  # 1번 쿼리
+    for i in range(10):
+        print(total)  # 쿼리 없음
+
+
+================================================================================
+📝 데이터 예시
+================================================================================
+
+[UserWorld 데이터 샘플]
+────────────────────────────────────────────────────────────────
+user: user1
+world: Python 🐍
+is_unlocked: True
+completed_stage: 3
+total_stage: 5 (property로 계산)
+progress_percentage: 60% (property로 계산)
+last_studied_at: 2025-11-04 14:30:00
+started_at: 2025-11-01 10:00:00 (created_at 별칭)
+
+
+================================================================================
+🔗 관련 모델 링크
+================================================================================
+
+→ World: 월드 정보
+→ User: 사용자 정보
+→ UserStageProgress: 스테이지별 진행 상황
+→ UserLessonProgress: 레슨별 진행 상황
+
+
+================================================================================
+끝!
+================================================================================
