@@ -59,11 +59,13 @@ class UserSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = User
-        fields = "__all__"
-        read_only_fields = ['user_id', 'created_at']
-        extra_kwargs = {
-            'password': {'write_only': True},
-        }
+        fields = [
+            'user_id',
+            'email',
+            'nickname',
+            'profile_image_url',
+        ]
+        read_only_fields = fields
 
 """ 사용자 상세 정보 조회용 Serializer"""
 class UserDetailSerializer(serializers.ModelSerializer):
