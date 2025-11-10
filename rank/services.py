@@ -54,7 +54,7 @@ class RankingService:
       'max_exp': 49999,
       'icon': '👑',
       'color': '#FF6B6B',
-      'order': '6'
+      'order': 6
     },
     'LEGEND': {
       'min_exp': 50000,
@@ -81,7 +81,7 @@ class RankingService:
   def get_tier_info(tier_name):
     return RankingService.TIER_SYSTEM.get(
       tier_name,
-      RankingService.TIER_SYSTEM['BRONGE']
+      RankingService.TIER_SYSTEM['BRONZE']
     )
   
   # ========================================================================
