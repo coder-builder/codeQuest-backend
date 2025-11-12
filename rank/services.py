@@ -6,7 +6,7 @@ from django.db import transaction, models
 from django.db.models import F, Q, Sum, Count
 from django.utils import timezone
 from datetime import datetime, timedelta
-from models import League, LeagueParticipant, UserRankingHistory, TierConfig, GlobalRanking
+from .models import League, LeagueParticipant, UserRankingHistory, TierConfig, GlobalRanking
 from users.models import User
 
 # ============================================================================
