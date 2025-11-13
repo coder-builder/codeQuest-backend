@@ -222,290 +222,290 @@ class RankingService:
       # 승급/강등 상태 업데이트
       participant.update_status(total_count)
 
-    # ========================================================================
-    # 리그 랭킹 조회 메서드
-    # ========================================================================
-    @staticmethod
-    def get_league_rankings(user):
-      week_start, week_end = RankingService.get_current_week_dates()
+  # ========================================================================
+  # 리그 랭킹 조회 메서드
+  # ========================================================================
+  @staticmethod
+  def get_league_rankings(user):
+    week_start, week_end = RankingService.get_current_week_dates()
 
-      try:
-        # 유저가 속한 리그 찾기
-        participant = LeagueParticipant.objects.select_related(
-          'league', 'user'
-        ).get(
-          user=user,
-          league__week_start=week_start,
-          league__is_active=True
-        )
-
-        # 같은 리그의 모든 참가자 가져오기
-        league_participants = (
-          LeagueParticipant.objects
-          .filter(league=participant.league)
-          .select_related('user')
-          .annotate(
-            total_exp=F('weekly_coding_exp') + F('weekly_cert_exp')
-          )
-          .order_by('-total_exp', 'joined_at')
-        )
-
-        # 참가자 리스트를 딕셔너리 리스트로 변환
-        participants_data = []
-
-        for p in league_participants:
-          participants_data.append({
-            'rank': p.current_rank,
-            'user_id': str(p.user.user_id),
-            'nickname': p.user.nickname,
-            'profile_image': p.user.profile_image_url,
-            'weekly_exp': p.weekly_total_exp,
-            'coding_exp': p.weekly_coding_exp,
-            'cert_exp': p.weekly_cert_exp,
-            'status': p.status,
-            'rank_change': p.rank_change,
-            'is_me': p.user.user_id == user.user_id
-          })
-
-        tier_info = RankingService.get_tier_info(participant.league.tier)
-
-        # 최종 결과 딕셔너리 반환
-        return {
-          'success': True,
-          'my_rank': participant.current_rank,
-          'my_exp': participant.weekly_total_exp,
-          'my_status': participant.status,
-          'rank_change': participant.rank_change,
-          'tier': participant.league.tier,
-          'tier_info': tier_info,
-          'league_id': str(participant.league.league_id),
-          'week_start': str(participant.league.week_start),
-          'week_end': str(participant.league.week_end),
-          'days_remaining': participant.league.days_remaining,
-          'total_participants': participant.league.current_participants,
-          'rankings': participants_data
-        }
-      
-      except LeagueParticipant.DoesNotExist:
-        # 참가 기록이 없으면 (이번 주 아직 문제 안 풀음)
-        
-        current_tier = RankingService.get_user_tier(user.exp)
-        tier_info = RankingService.get_tier_info(current_tier)
-        
-        return {
-            'success': False,
-            'message': '아직 이번 주 리그에 참가하지 않았습니다.',
-            'tier': current_tier,
-            'tier_info': tier_info
-        }
-    
-
-    # ========================================================================
-    # 전체 랭킹 조회 메서드
-    # ========================================================================
-
-    @staticmethod
-    def get_global_rankings(limit=100, offset=0):
-
-      rankings = (
-        GlobalRanking.objects
-        .select_related('user')
-        .order_by('rank')[offset:offset+limit]
+    try:
+      # 유저가 속한 리그 찾기
+      participant = LeagueParticipant.objects.select_related(
+        'league', 'user'
+      ).get(
+        user=user,
+        league__week_start=week_start,
+        league__is_active=True
       )
-      
-      rankings_data = []
 
-      for ranking in rankings:
-        tier_info = RankingService.get_tier_info(ranking.current_tier)
+      # 같은 리그의 모든 참가자 가져오기
+      league_participants = (
+        LeagueParticipant.objects
+        .filter(league=participant.league)
+        .select_related('user')
+        .annotate(
+          total_exp=F('weekly_coding_exp') + F('weekly_cert_exp')
+        )
+        .order_by('-total_exp', 'joined_at')
+      )
 
-        rankings_data.append({
-          'rank': ranking.rank,
-          'user_id': str(ranking.user.user_id),
-          'nickname': ranking.user.nickname,
-          'profile_image': ranking.user.profile_image_url,
-          'total_exp': ranking.total_exp,
-          'tier': ranking.current_tier,
-          'tier_icon': tier_info['icon'],
-          'tier_color': tier_info['color']
+      # 참가자 리스트를 딕셔너리 리스트로 변환
+      participants_data = []
+
+      for p in league_participants:
+        participants_data.append({
+          'rank': p.current_rank,
+          'user_id': str(p.user.user_id),
+          'nickname': p.user.nickname,
+          'profile_image': p.user.profile_image_url,
+          'weekly_exp': p.weekly_total_exp,
+          'coding_exp': p.weekly_coding_exp,
+          'cert_exp': p.weekly_cert_exp,
+          'status': p.status,
+          'rank_change': p.rank_change,
+          'is_me': p.user.user_id == user.user_id
         })
 
-      return rankings_data
-    
+      tier_info = RankingService.get_tier_info(participant.league.tier)
 
-    # ========================================================================
-    # 전체 랭킹 업데이트 메서드
-    # ========================================================================
-    
-    @staticmethod
-    @transaction.atomic
-    def update_global_ranking(user):
-
-      current_tier = RankingService.get_user_tier(user.exp)
-
-      # GlobalRanking 업데이트 또는 생성
-      global_ranking, created = GlobalRanking.objects.update_or_create(
-        user=user,
-        defaults={
-          'total_exp': user.exp,
-          'current_tier': current_tier
-        }
-      )
-
-      # 전체 순위 재계산
-      rank = (
-        GlobalRanking.objects
-        .filter(total_exp__gt=user.exp)
-        .count() + 1
-      )
-
-      global_ranking.rank = rank
-      global_ranking.save(update_fields=['rank'])
-
-      return global_ranking
-    
-
-    # ========================================================================
-    # 주간 승급/강등 처리 메서드 (Celery 스케줄러용)
-    # ========================================================================
-
-    @staticmethod
-    @transaction.atomic
-    def process_weekly_promotion_demotion():
-
-      today = timezone.now().date()
-
-      # 일요일 체크
-      if today.weekday() != 6:
-        return {
-          'success': False,
-          'message': '일요일에만 실행됩니다.'
-        }
-      
-      # 오늘 종료되는 리그 찾기
-      active_leagues = League.objects.filter(
-        week_end=today,     # 오늘 종료되는 리그
-        is_active=True,     # 활성 상태
-        is_finished=False   # 아직 종료 처리 안 됨
-      )
-
-      processed_count = 0   # 처리된 리그 수 카운터
-
-      # 각 리그 처리
-      for league in active_leagues:
-
-        # 리그 참가자들 가져오기
-        participants = (
-          LeagueParticipant.objects
-          .filter(league=league)
-          .order_by('current_rank')
-        )
-
-        total_participants = participants.count() # 총 참가자 수
-
-        # 각 참가자의 최종 기록 저장
-        for participant in participants:
-
-          # 히스토리 테이블에 기록 저장
-          UserRankingHistory.objects.create(
-            user=participant.user,
-            league=league,
-            final_rank=participant.current_rank,
-            final_exp=participant.weekly_total_exp,
-            final_coding_exp=participant.weekly_coding_exp,
-            final_cert_exp=participant.weekly_cert_exp,
-
-            result=(
-              'PROMOTED' if participant.status == 'PROMOTION'
-              else 'DEMOTED' if participant.status == 'DEMOTION'
-              else 'MAINTAINED'
-            ),
-
-            reward_coins=RankingService.calculate_reward(
-              participant.current_rank,
-              league.tier
-            )
-          )
-        
-        # 리그 종료 처리
-        league.is_active = False  # 비활성화
-        league.is_finished = True # 종료 완료
-
-        league.save(update_fields=['is_active', 'is_finished']) # 두 필드만 업데이트
-
-        processed_count += 1      # 카운터 증가
-
-      # 결과 반환
+      # 최종 결과 딕셔너리 반환
       return {
         'success': True,
-        'processed_leagues': processed_count,
-        'date': str(today)
+        'my_rank': participant.current_rank,
+        'my_exp': participant.weekly_total_exp,
+        'my_status': participant.status,
+        'rank_change': participant.rank_change,
+        'tier': participant.league.tier,
+        'tier_info': tier_info,
+        'league_id': str(participant.league.league_id),
+        'week_start': str(participant.league.week_start),
+        'week_end': str(participant.league.week_end),
+        'days_remaining': participant.league.days_remaining,
+        'total_participants': participant.league.current_participants,
+        'rankings': participants_data
       }
-
-
-    # ========================================================================
-    # 보상 계산 메서드
-    # ========================================================================
-
-    @staticmethod
-    def calculate_reward(rank, tier):
-
-      tier_info = RankingService.get_tier_info(tier)  # 티어 정보 가져오기
-      base_reward = 100 # 기본 보상: 100 코인
-
-      # 순위에 따른 보상 배율
-      if rank == 1:             # 1등
-        rank_multiplier = 5.0   # 5배
-      
-      elif rank <= 3:           # 2~3등
-        rank_multiplier = 3.0   # 3배
-
-      elif rank <= 10:          # 4~10등
-        rank_multiplier = 2.0   # 2배
-
-      elif rank <= 20:          # 11~20등
-        rank_multiplier = 1.5   # 1.5배
-
-      else:                     # 21등 이하
-        rank_multiplier = 1.0   # 1배 (기본)
-      
-
-      # 티어에 따른 보상 배율
-      tier_multiplier = tier_info['order']
-
-      # 최종 보상 계산
-      total_reward = int(base_reward * rank_multiplier * tier_multiplier)
-
-      return total_reward
     
+    except LeagueParticipant.DoesNotExist:
+      # 참가 기록이 없으면 (이번 주 아직 문제 안 풀음)
+      
+      current_tier = RankingService.get_user_tier(user.exp)
+      tier_info = RankingService.get_tier_info(current_tier)
+      
+      return {
+          'success': False,
+          'message': '아직 이번 주 리그에 참가하지 않았습니다.',
+          'tier': current_tier,
+          'tier_info': tier_info
+      }
+  
 
-    # ========================================================================
-    # 유저 랭킹 히스토리 조회 메서드
-    # ========================================================================
+  # ========================================================================
+  # 전체 랭킹 조회 메서드
+  # ========================================================================
+
+  @staticmethod
+  def get_global_rankings(limit=100, offset=0):
+
+    rankings = (
+      GlobalRanking.objects
+      .select_related('user')
+      .order_by('rank')[offset:offset+limit]
+    )
     
-    @staticmethod
-    def get_user_ranking_history(user, limit=10):
-      history = (
-        UserRankingHistory.objects
-        .filter(user=user)
-        .select_related('league')
-        .order_by('-recorded_at')[:limit]
+    rankings_data = []
+
+    for ranking in rankings:
+      tier_info = RankingService.get_tier_info(ranking.current_tier)
+
+      rankings_data.append({
+        'rank': ranking.rank,
+        'user_id': str(ranking.user.user_id),
+        'nickname': ranking.user.nickname,
+        'profile_image': ranking.user.profile_image_url,
+        'total_exp': ranking.total_exp,
+        'tier': ranking.current_tier,
+        'tier_icon': tier_info['icon'],
+        'tier_color': tier_info['color']
+      })
+
+    return rankings_data
+  
+
+  # ========================================================================
+  # 전체 랭킹 업데이트 메서드
+  # ========================================================================
+  
+  @staticmethod
+  @transaction.atomic
+  def update_global_ranking(user):
+
+    current_tier = RankingService.get_user_tier(user.exp)
+
+    # GlobalRanking 업데이트 또는 생성
+    global_ranking, created = GlobalRanking.objects.update_or_create(
+      user=user,
+      defaults={
+        'total_exp': user.exp,
+        'current_tier': current_tier
+      }
+    )
+
+    # 전체 순위 재계산
+    rank = (
+      GlobalRanking.objects
+      .filter(total_exp__gt=user.exp)
+      .count() + 1
+    )
+
+    global_ranking.rank = rank
+    global_ranking.save(update_fields=['rank'])
+
+    return global_ranking
+  
+
+  # ========================================================================
+  # 주간 승급/강등 처리 메서드 (Celery 스케줄러용)
+  # ========================================================================
+
+  @staticmethod
+  @transaction.atomic
+  def process_weekly_promotion_demotion():
+
+    today = timezone.now().date()
+
+    # 일요일 체크
+    if today.weekday() != 6:
+      return {
+        'success': False,
+        'message': '일요일에만 실행됩니다.'
+      }
+    
+    # 오늘 종료되는 리그 찾기
+    active_leagues = League.objects.filter(
+      week_end=today,     # 오늘 종료되는 리그
+      is_active=True,     # 활성 상태
+      is_finished=False   # 아직 종료 처리 안 됨
+    )
+
+    processed_count = 0   # 처리된 리그 수 카운터
+
+    # 각 리그 처리
+    for league in active_leagues:
+
+      # 리그 참가자들 가져오기
+      participants = (
+        LeagueParticipant.objects
+        .filter(league=league)
+        .order_by('current_rank')
       )
 
-      history_data = []
+      total_participants = participants.count() # 총 참가자 수
 
-      for record in history:
-        tier_info = RankingService.get_tier_info(record.league.tier)
+      # 각 참가자의 최종 기록 저장
+      for participant in participants:
 
-        history_data.append({
-          'week_start': str(record.league.week_start),
-          'week_end': str(record.league.week_end),
-          'tier': record.league.tier,
-          'tier_icon': tier_info['icon'],
-          'final_rank': record.final_rank,
-          'final_exp': record.final_exp,
-          'result': record.result,
-          'reward_coins': record.reward_coins,
-          'recorded_at': record.recorded_at.isoformat()
-        })
+        # 히스토리 테이블에 기록 저장
+        UserRankingHistory.objects.create(
+          user=participant.user,
+          league=league,
+          final_rank=participant.current_rank,
+          final_exp=participant.weekly_total_exp,
+          final_coding_exp=participant.weekly_coding_exp,
+          final_cert_exp=participant.weekly_cert_exp,
+
+          result=(
+            'PROMOTED' if participant.status == 'PROMOTION'
+            else 'DEMOTED' if participant.status == 'DEMOTION'
+            else 'MAINTAINED'
+          ),
+
+          reward_coins=RankingService.calculate_reward(
+            participant.current_rank,
+            league.tier
+          )
+        )
       
-      return history_data
+      # 리그 종료 처리
+      league.is_active = False  # 비활성화
+      league.is_finished = True # 종료 완료
+
+      league.save(update_fields=['is_active', 'is_finished']) # 두 필드만 업데이트
+
+      processed_count += 1      # 카운터 증가
+
+    # 결과 반환
+    return {
+      'success': True,
+      'processed_leagues': processed_count,
+      'date': str(today)
+    }
+
+
+  # ========================================================================
+  # 보상 계산 메서드
+  # ========================================================================
+
+  @staticmethod
+  def calculate_reward(rank, tier):
+
+    tier_info = RankingService.get_tier_info(tier)  # 티어 정보 가져오기
+    base_reward = 100 # 기본 보상: 100 코인
+
+    # 순위에 따른 보상 배율
+    if rank == 1:             # 1등
+      rank_multiplier = 5.0   # 5배
+    
+    elif rank <= 3:           # 2~3등
+      rank_multiplier = 3.0   # 3배
+
+    elif rank <= 10:          # 4~10등
+      rank_multiplier = 2.0   # 2배
+
+    elif rank <= 20:          # 11~20등
+      rank_multiplier = 1.5   # 1.5배
+
+    else:                     # 21등 이하
+      rank_multiplier = 1.0   # 1배 (기본)
+    
+
+    # 티어에 따른 보상 배율
+    tier_multiplier = tier_info['order']
+
+    # 최종 보상 계산
+    total_reward = int(base_reward * rank_multiplier * tier_multiplier)
+
+    return total_reward
+  
+
+  # ========================================================================
+  # 유저 랭킹 히스토리 조회 메서드
+  # ========================================================================
+  
+  @staticmethod
+  def get_user_ranking_history(user, limit=10):
+    history = (
+      UserRankingHistory.objects
+      .filter(user=user)
+      .select_related('league')
+      .order_by('-recorded_at')[:limit]
+    )
+
+    history_data = []
+
+    for record in history:
+      tier_info = RankingService.get_tier_info(record.league.tier)
+
+      history_data.append({
+        'week_start': str(record.league.week_start),
+        'week_end': str(record.league.week_end),
+        'tier': record.league.tier,
+        'tier_icon': tier_info['icon'],
+        'final_rank': record.final_rank,
+        'final_exp': record.final_exp,
+        'result': record.result,
+        'reward_coins': record.reward_coins,
+        'recorded_at': record.recorded_at.isoformat()
+      })
+    
+    return history_data
